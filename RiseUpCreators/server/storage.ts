@@ -1,789 +1,560 @@
 import {
-  users,
-  artists,
-  songs,
-  albums,
-  playlists,
-  subscriptions,
-  products,
-  events,
-  orders,
-  tickets,
-  blogs,
-  blogComments,
-  ads,
-  analytics,
-  notifications,
-  reports,
-  follows,
-  likes,
-  type User,
+  User,
+  Artist,
+  Song,
+  Album,
+  Playlist,
+  Subscription,
+  Product,
+  Event,
+  Order,
+  Ticket,
+  Blog,
+  BlogComment,
+  Ad,
+  Analytics,
+  Notification,
+  Report,
+  Follow,
+  Like,
+  type User as IUser,
   type InsertUser,
-  type Artist,
+  type Artist as IArtist,
   type InsertArtist,
-  type Song,
+  type Song as ISong,
   type InsertSong,
-  type Album,
+  type Album as IAlbum,
   type InsertAlbum,
-  type Playlist,
+  type Playlist as IPlaylist,
   type InsertPlaylist,
-  type Subscription,
+  type Subscription as ISubscription,
   type InsertSubscription,
-  type Product,
+  type Product as IProduct,
   type InsertProduct,
-  type Event,
+  type Event as IEvent,
   type InsertEvent,
-  type Order,
+  type Order as IOrder,
   type InsertOrder,
-  type Ticket,
+  type Ticket as ITicket,
   type InsertTicket,
-  type Blog,
+  type Blog as IBlog,
   type InsertBlog,
-  type BlogComment,
+  type BlogComment as IBlogComment,
   type InsertBlogComment,
-  type Ad,
+  type Ad as IAd,
   type InsertAd,
-  type Analytics,
+  type Analytics as IAnalytics,
   type InsertAnalytics,
-  type Notification,
+  type Notification as INotification,
   type InsertNotification,
-  type Report,
+  type Report as IReport,
   type InsertReport,
-  type Follow,
+  type Follow as IFollow,
   type InsertFollow,
-  type Like,
+  type Like as ILike,
   type InsertLike,
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, asc, and, or, sql, count, ilike, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
-  getUser(id: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  updateUser(id: string, updates: Partial<InsertUser>): Promise<User>;
+  getUser(id: string): Promise<IUser | null>;
+  getUserByEmail(email: string): Promise<IUser | null>;
+  createUser(user: InsertUser): Promise<IUser>;
+  updateUser(id: string, updates: Partial<InsertUser>): Promise<IUser | null>;
   deleteUser(id: string): Promise<void>;
 
   // Artist operations
-  getArtist(id: string): Promise<Artist | undefined>;
-  getArtistByUserId(userId: string): Promise<Artist | undefined>;
-  createArtist(artist: InsertArtist): Promise<Artist>;
-  updateArtist(id: string, updates: Partial<InsertArtist>): Promise<Artist>;
-  getFeaturedArtists(limit?: number): Promise<Artist[]>;
-  searchArtists(query: string, limit?: number): Promise<Artist[]>;
+  getArtist(id: string): Promise<IArtist | null>;
+  getArtistByUserId(userId: string): Promise<IArtist | null>;
+  createArtist(artist: InsertArtist): Promise<IArtist>;
+  updateArtist(id: string, updates: Partial<InsertArtist>): Promise<IArtist | null>;
+  getFeaturedArtists(limit?: number): Promise<IArtist[]>;
+  searchArtists(query: string, limit?: number): Promise<IArtist[]>;
 
   // Song operations
-  getSong(id: string): Promise<Song | undefined>;
-  getSongsByArtist(artistId: string, limit?: number): Promise<Song[]>;
-  createSong(song: InsertSong): Promise<Song>;
-  updateSong(id: string, updates: Partial<InsertSong>): Promise<Song>;
+  getSong(id: string): Promise<ISong | null>;
+  getSongsByArtist(artistId: string, limit?: number): Promise<ISong[]>;
+  createSong(song: InsertSong): Promise<ISong>;
+  updateSong(id: string, updates: Partial<InsertSong>): Promise<ISong | null>;
   deleteSong(id: string): Promise<void>;
-  getTrendingSongs(limit?: number): Promise<Song[]>;
-  searchSongs(query: string, limit?: number): Promise<Song[]>;
+  getTrendingSongs(limit?: number): Promise<ISong[]>;
+  searchSongs(query: string, limit?: number): Promise<ISong[]>;
 
   // Album operations
-  getAlbum(id: string): Promise<Album | undefined>;
-  getAlbumsByArtist(artistId: string): Promise<Album[]>;
-  createAlbum(album: InsertAlbum): Promise<Album>;
-  updateAlbum(id: string, updates: Partial<InsertAlbum>): Promise<Album>;
+  getAlbum(id: string): Promise<IAlbum | null>;
+  getAlbumsByArtist(artistId: string): Promise<IAlbum[]>;
+  createAlbum(album: InsertAlbum): Promise<IAlbum>;
+  updateAlbum(id: string, updates: Partial<InsertAlbum>): Promise<IAlbum | null>;
   deleteAlbum(id: string): Promise<void>;
 
   // Playlist operations
-  getPlaylist(id: string): Promise<Playlist | undefined>;
-  getPlaylistsByUser(userId: string): Promise<Playlist[]>;
-  createPlaylist(playlist: InsertPlaylist): Promise<Playlist>;
-  updatePlaylist(id: string, updates: Partial<InsertPlaylist>): Promise<Playlist>;
+  getPlaylist(id: string): Promise<IPlaylist | null>;
+  getPlaylistsByUser(userId: string): Promise<IPlaylist[]>;
+  createPlaylist(playlist: InsertPlaylist): Promise<IPlaylist>;
+  updatePlaylist(id: string, updates: Partial<InsertPlaylist>): Promise<IPlaylist | null>;
   deletePlaylist(id: string): Promise<void>;
 
   // Subscription operations
-  getSubscription(id: string): Promise<Subscription | undefined>;
-  getSubscriptionsByFan(fanId: string): Promise<Subscription[]>;
-  getSubscriptionsByArtist(artistId: string): Promise<Subscription[]>;
-  createSubscription(subscription: InsertSubscription): Promise<Subscription>;
-  updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription>;
+  getSubscription(id: string): Promise<ISubscription | null>;
+  getSubscriptionsByFan(fanId: string): Promise<ISubscription[]>;
+  getSubscriptionsByArtist(artistId: string): Promise<ISubscription[]>;
+  createSubscription(subscription: InsertSubscription): Promise<ISubscription>;
+  updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<ISubscription | null>;
   cancelSubscription(id: string): Promise<void>;
 
   // Product operations
-  getProduct(id: string): Promise<Product | undefined>;
-  getProductsByArtist(artistId: string): Promise<Product[]>;
-  createProduct(product: InsertProduct): Promise<Product>;
-  updateProduct(id: string, updates: Partial<InsertProduct>): Promise<Product>;
+  getProduct(id: string): Promise<IProduct | null>;
+  getProductsByArtist(artistId: string): Promise<IProduct[]>;
+  createProduct(product: InsertProduct): Promise<IProduct>;
+  updateProduct(id: string, updates: Partial<InsertProduct>): Promise<IProduct | null>;
   deleteProduct(id: string): Promise<void>;
-  searchProducts(query: string, limit?: number): Promise<Product[]>;
+  searchProducts(query: string, limit?: number): Promise<IProduct[]>;
 
   // Event operations
-  getEvent(id: string): Promise<Event | undefined>;
-  getEventsByArtist(artistId: string): Promise<Event[]>;
-  getUpcomingEvents(limit?: number): Promise<Event[]>;
-  createEvent(event: InsertEvent): Promise<Event>;
-  updateEvent(id: string, updates: Partial<InsertEvent>): Promise<Event>;
+  getEvent(id: string): Promise<IEvent | null>;
+  getEventsByArtist(artistId: string): Promise<IEvent[]>;
+  getUpcomingEvents(limit?: number): Promise<IEvent[]>;
+  createEvent(event: InsertEvent): Promise<IEvent>;
+  updateEvent(id: string, updates: Partial<InsertEvent>): Promise<IEvent | null>;
   deleteEvent(id: string): Promise<void>;
-  searchEvents(query: string, limit?: number): Promise<Event[]>;
+  searchEvents(query: string, limit?: number): Promise<IEvent[]>;
 
   // Order operations
-  getOrder(id: string): Promise<Order | undefined>;
-  getOrdersByUser(userId: string): Promise<Order[]>;
-  createOrder(order: InsertOrder): Promise<Order>;
-  updateOrder(id: string, updates: Partial<InsertOrder>): Promise<Order>;
+  getOrder(id: string): Promise<IOrder | null>;
+  getOrdersByUser(userId: string): Promise<IOrder[]>;
+  createOrder(order: InsertOrder): Promise<IOrder>;
+  updateOrder(id: string, updates: Partial<InsertOrder>): Promise<IOrder | null>;
 
   // Ticket operations
-  getTicket(id: string): Promise<Ticket | undefined>;
-  getTicketsByUser(userId: string): Promise<Ticket[]>;
-  getTicketsByEvent(eventId: string): Promise<Ticket[]>;
-  createTicket(ticket: InsertTicket): Promise<Ticket>;
-  updateTicket(id: string, updates: Partial<InsertTicket>): Promise<Ticket>;
+  getTicket(id: string): Promise<ITicket | null>;
+  getTicketsByUser(userId: string): Promise<ITicket[]>;
+  getTicketsByEvent(eventId: string): Promise<ITicket[]>;
+  createTicket(ticket: InsertTicket): Promise<ITicket>;
+  updateTicket(id: string, updates: Partial<InsertTicket>): Promise<ITicket | null>;
 
   // Blog operations
-  getBlog(id: string): Promise<Blog | undefined>;
-  getBlogsByAuthor(authorId: string): Promise<Blog[]>;
-  getPublishedBlogs(limit?: number): Promise<Blog[]>;
-  createBlog(blog: InsertBlog): Promise<Blog>;
-  updateBlog(id: string, updates: Partial<InsertBlog>): Promise<Blog>;
+  getBlog(id: string): Promise<IBlog | null>;
+  getBlogsByAuthor(authorId: string): Promise<IBlog[]>;
+  getPublishedBlogs(limit?: number): Promise<IBlog[]>;
+  createBlog(blog: InsertBlog): Promise<IBlog>;
+  updateBlog(id: string, updates: Partial<InsertBlog>): Promise<IBlog | null>;
   deleteBlog(id: string): Promise<void>;
 
   // Blog comment operations
-  getBlogComment(id: string): Promise<BlogComment | undefined>;
-  getBlogCommentsByBlog(blogId: string): Promise<BlogComment[]>;
-  createBlogComment(comment: InsertBlogComment): Promise<BlogComment>;
-  updateBlogComment(id: string, updates: Partial<InsertBlogComment>): Promise<BlogComment>;
+  getBlogComment(id: string): Promise<IBlogComment | null>;
+  getBlogCommentsByBlog(blogId: string): Promise<IBlogComment[]>;
+  createBlogComment(comment: InsertBlogComment): Promise<IBlogComment>;
+  updateBlogComment(id: string, updates: Partial<InsertBlogComment>): Promise<IBlogComment | null>;
   deleteBlogComment(id: string): Promise<void>;
 
   // Follow operations
-  followArtist(followerId: string, artistId: string): Promise<Follow>;
+  followArtist(followerId: string, artistId: string): Promise<IFollow>;
   unfollowArtist(followerId: string, artistId: string): Promise<void>;
-  getFollowedArtists(userId: string): Promise<Artist[]>;
+  getFollowedArtists(userId: string): Promise<IArtist[]>;
   isFollowing(followerId: string, artistId: string): Promise<boolean>;
 
   // Like operations
-  likeSong(userId: string, songId: string): Promise<Like>;
+  likeSong(userId: string, songId: string): Promise<ILike>;
   unlikeSong(userId: string, songId: string): Promise<void>;
-  getLikedSongs(userId: string): Promise<Song[]>;
+  getLikedSongs(userId: string): Promise<ISong[]>;
   isLiked(userId: string, songId: string): Promise<boolean>;
 
   // Analytics operations
-  trackEvent(analytics: InsertAnalytics): Promise<Analytics>;
-  getAnalytics(filters: { userId?: string; eventType?: string; startDate?: Date; endDate?: Date }): Promise<Analytics[]>;
+  trackEvent(analytics: InsertAnalytics): Promise<IAnalytics>;
+  getAnalytics(filters: { userId?: string; eventType?: string; startDate?: Date; endDate?: Date }): Promise<IAnalytics[]>;
 
   // Notification operations
-  getNotification(id: string): Promise<Notification | undefined>;
-  getNotificationsByUser(userId: string): Promise<Notification[]>;
-  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotification(id: string): Promise<INotification | null>;
+  getNotificationsByUser(userId: string): Promise<INotification[]>;
+  createNotification(notification: InsertNotification): Promise<INotification>;
   markNotificationAsRead(id: string): Promise<void>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
 
   // Report operations
-  getReport(id: string): Promise<Report | undefined>;
-  getReports(status?: string): Promise<Report[]>;
-  createReport(report: InsertReport): Promise<Report>;
-  updateReport(id: string, updates: Partial<InsertReport>): Promise<Report>;
+  getReport(id: string): Promise<IReport | null>;
+  getReports(status?: string): Promise<IReport[]>;
+  createReport(report: InsertReport): Promise<IReport>;
+  updateReport(id: string, updates: Partial<InsertReport>): Promise<IReport | null>;
 
   // Ad operations
-  getAd(id: string): Promise<Ad | undefined>;
-  getActiveAds(): Promise<Ad[]>;
-  createAd(ad: InsertAd): Promise<Ad>;
-  updateAd(id: string, updates: Partial<InsertAd>): Promise<Ad>;
+  getAd(id: string): Promise<IAd | null>;
+  getActiveAds(): Promise<IAd[]>;
+  createAd(ad: InsertAd): Promise<IAd>;
+  updateAd(id: string, updates: Partial<InsertAd>): Promise<IAd | null>;
   deleteAd(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
   // User operations
-  async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+  async getUser(id: string): Promise<IUser | null> {
+    return await User.findById(id);
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+  async getUserByEmail(email: string): Promise<IUser | null> {
+    return await User.findOne({ email });
   }
 
-  async createUser(user: InsertUser): Promise<User> {
-    const [newUser] = await db.insert(users).values(user).returning();
-    return newUser;
+  async createUser(user: InsertUser): Promise<IUser> {
+    const newUser = new User(user);
+    return await newUser.save();
   }
 
-  async updateUser(id: string, updates: Partial<InsertUser>): Promise<User> {
-    const [updatedUser] = await db
-      .update(users)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return updatedUser;
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<IUser | null> {
+    return await User.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteUser(id: string): Promise<void> {
-    await db.delete(users).where(eq(users.id, id));
+    await User.findByIdAndDelete(id);
   }
 
   // Artist operations
-  async getArtist(id: string): Promise<Artist | undefined> {
-    const [artist] = await db.select().from(artists).where(eq(artists.id, id));
-    return artist;
+  async getArtist(id: string): Promise<IArtist | null> {
+    return await Artist.findById(id);
   }
 
-  async getArtistByUserId(userId: string): Promise<Artist | undefined> {
-    const [artist] = await db.select().from(artists).where(eq(artists.userId, userId));
-    return artist;
+  async getArtistByUserId(userId: string): Promise<IArtist | null> {
+    return await Artist.findOne({ userId });
   }
 
-  async createArtist(artist: InsertArtist): Promise<Artist> {
-    const [newArtist] = await db.insert(artists).values(artist).returning();
-    return newArtist;
+  async createArtist(artist: InsertArtist): Promise<IArtist> {
+    const newArtist = new Artist(artist);
+    return await newArtist.save();
   }
 
-  async updateArtist(id: string, updates: Partial<InsertArtist>): Promise<Artist> {
-    const [updatedArtist] = await db
-      .update(artists)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(artists.id, id))
-      .returning();
-    return updatedArtist;
+  async updateArtist(id: string, updates: Partial<InsertArtist>): Promise<IArtist | null> {
+    return await Artist.findByIdAndUpdate(id, updates, { new: true });
   }
 
-  async getFeaturedArtists(limit = 10): Promise<Artist[]> {
-    return await db
-      .select()
-      .from(artists)
-      .where(eq(artists.featured, true))
-      .orderBy(desc(artists.trendingScore))
+  async getFeaturedArtists(limit = 10): Promise<IArtist[]> {
+    return await Artist.find({ featured: true })
+      .sort({ trendingScore: -1 })
       .limit(limit);
   }
 
-  async searchArtists(query: string, limit = 20): Promise<Artist[]> {
-    return await db
-      .select()
-      .from(artists)
-      .innerJoin(users, eq(artists.userId, users.id))
-      .where(ilike(users.name, `%${query}%`))
-      .limit(limit);
+  async searchArtists(query: string, limit = 20): Promise<IArtist[]> {
+    return await Artist.find().populate({
+        path: 'userId',
+        match: { name: { $regex: query, $options: 'i' } }
+      }).limit(limit);
   }
 
   // Song operations
-  async getSong(id: string): Promise<Song | undefined> {
-    const [song] = await db.select().from(songs).where(eq(songs.id, id));
-    return song;
+  async getSong(id: string): Promise<ISong | null> {
+    return await Song.findById(id);
   }
 
-  async getSongsByArtist(artistId: string, limit = 50): Promise<Song[]> {
-    return await db
-      .select()
-      .from(songs)
-      .where(eq(songs.artistId, artistId))
-      .orderBy(desc(songs.createdAt))
+  async getSongsByArtist(artistId: string, limit = 50): Promise<ISong[]> {
+    return await Song.find({ artistId })
+      .sort({ createdAt: -1 })
       .limit(limit);
   }
 
-  async createSong(song: InsertSong): Promise<Song> {
-    const [newSong] = await db.insert(songs).values(song).returning();
-    return newSong;
+  async createSong(song: InsertSong): Promise<ISong> {
+    const newSong = new Song(song);
+    return await newSong.save();
   }
 
-  async updateSong(id: string, updates: Partial<InsertSong>): Promise<Song> {
-    const [updatedSong] = await db
-      .update(songs)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(songs.id, id))
-      .returning();
-    return updatedSong;
+  async updateSong(id: string, updates: Partial<InsertSong>): Promise<ISong | null> {
+    return await Song.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteSong(id: string): Promise<void> {
-    await db.delete(songs).where(eq(songs.id, id));
+    await Song.findByIdAndDelete(id);
   }
 
-  async getTrendingSongs(limit = 20): Promise<Song[]> {
-    return await db
-      .select()
-      .from(songs)
-      .where(eq(songs.visibility, 'public'))
-      .orderBy(desc(sql`(${songs.analytics}->>'trendingScore')::numeric`))
+  async getTrendingSongs(limit = 20): Promise<ISong[]> {
+    return await Song.find({ visibility: 'public' })
+      .sort({ 'analytics.trendingScore': -1 })
       .limit(limit);
   }
 
-  async searchSongs(query: string, limit = 50): Promise<Song[]> {
-    return await db
-      .select()
-      .from(songs)
-      .where(
-        and(
-          eq(songs.visibility, 'public'),
-          or(
-            ilike(songs.title, `%${query}%`),
-            ilike(songs.genre, `%${query}%`)
-          )
-        )
-      )
-      .limit(limit);
+  async searchSongs(query: string, limit = 50): Promise<ISong[]> {
+    return await Song.find({
+      visibility: 'public',
+      $or: [
+        { title: { $regex: query, $options: 'i' } },
+        { genre: { $regex: query, $options: 'i' } }
+      ]
+    }).limit(limit);
   }
 
   // Album operations
-  async getAlbum(id: string): Promise<Album | undefined> {
-    const [album] = await db.select().from(albums).where(eq(albums.id, id));
-    return album;
+  async getAlbum(id: string): Promise<IAlbum | null> {
+    return await Album.findById(id);
   }
 
-  async getAlbumsByArtist(artistId: string): Promise<Album[]> {
-    return await db
-      .select()
-      .from(albums)
-      .where(eq(albums.artistId, artistId))
-      .orderBy(desc(albums.releaseDate));
+  async getAlbumsByArtist(artistId: string): Promise<IAlbum[]> {
+    return await Album.find({ artistId }).sort({ releaseDate: -1 });
   }
 
-  async createAlbum(album: InsertAlbum): Promise<Album> {
-    const [newAlbum] = await db.insert(albums).values(album).returning();
-    return newAlbum;
+  async createAlbum(album: InsertAlbum): Promise<IAlbum> {
+    const newAlbum = new Album(album);
+    return await newAlbum.save();
   }
 
-  async updateAlbum(id: string, updates: Partial<InsertAlbum>): Promise<Album> {
-    const [updatedAlbum] = await db
-      .update(albums)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(albums.id, id))
-      .returning();
-    return updatedAlbum;
+  async updateAlbum(id: string, updates: Partial<InsertAlbum>): Promise<IAlbum | null> {
+    return await Album.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteAlbum(id: string): Promise<void> {
-    await db.delete(albums).where(eq(albums.id, id));
+    await Album.findByIdAndDelete(id);
   }
 
   // Playlist operations
-  async getPlaylist(id: string): Promise<Playlist | undefined> {
-    const [playlist] = await db.select().from(playlists).where(eq(playlists.id, id));
-    return playlist;
+  async getPlaylist(id: string): Promise<IPlaylist | null> {
+    return await Playlist.findById(id);
   }
 
-  async getPlaylistsByUser(userId: string): Promise<Playlist[]> {
-    return await db
-      .select()
-      .from(playlists)
-      .where(eq(playlists.ownerId, userId))
-      .orderBy(desc(playlists.updatedAt));
+  async getPlaylistsByUser(userId: string): Promise<IPlaylist[]> {
+    return await Playlist.find({ ownerId: userId }).sort({ updatedAt: -1 });
   }
 
-  async createPlaylist(playlist: InsertPlaylist): Promise<Playlist> {
-    const [newPlaylist] = await db.insert(playlists).values(playlist).returning();
-    return newPlaylist;
+  async createPlaylist(playlist: InsertPlaylist): Promise<IPlaylist> {
+    const newPlaylist = new Playlist(playlist);
+    return await newPlaylist.save();
   }
 
-  async updatePlaylist(id: string, updates: Partial<InsertPlaylist>): Promise<Playlist> {
-    const [updatedPlaylist] = await db
-      .update(playlists)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(playlists.id, id))
-      .returning();
-    return updatedPlaylist;
+  async updatePlaylist(id: string, updates: Partial<InsertPlaylist>): Promise<IPlaylist | null> {
+    return await Playlist.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deletePlaylist(id: string): Promise<void> {
-    await db.delete(playlists).where(eq(playlists.id, id));
+    await Playlist.findByIdAndDelete(id);
   }
 
   // Subscription operations
-  async getSubscription(id: string): Promise<Subscription | undefined> {
-    const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.id, id));
-    return subscription;
+  async getSubscription(id: string): Promise<ISubscription | null> {
+    return await Subscription.findById(id);
   }
 
-  async getSubscriptionsByFan(fanId: string): Promise<Subscription[]> {
-    return await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.fanId, fanId))
-      .orderBy(desc(subscriptions.createdAt));
+  async getSubscriptionsByFan(fanId: string): Promise<ISubscription[]> {
+    return await Subscription.find({ fanId }).sort({ createdAt: -1 });
   }
 
-  async getSubscriptionsByArtist(artistId: string): Promise<Subscription[]> {
-    return await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.artistId, artistId))
-      .orderBy(desc(subscriptions.createdAt));
+  async getSubscriptionsByArtist(artistId: string): Promise<ISubscription[]> {
+    return await Subscription.find({ artistId }).sort({ createdAt: -1 });
   }
 
-  async createSubscription(subscription: InsertSubscription): Promise<Subscription> {
-    const [newSubscription] = await db.insert(subscriptions).values(subscription).returning();
-    return newSubscription;
+  async createSubscription(subscription: InsertSubscription): Promise<ISubscription> {
+    const newSubscription = new Subscription(subscription);
+    return await newSubscription.save();
   }
 
-  async updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<Subscription> {
-    const [updatedSubscription] = await db
-      .update(subscriptions)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(subscriptions.id, id))
-      .returning();
-    return updatedSubscription;
+  async updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<ISubscription | null> {
+    return await Subscription.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async cancelSubscription(id: string): Promise<void> {
-    await db
-      .update(subscriptions)
-      .set({ status: 'cancelled', updatedAt: new Date() })
-      .where(eq(subscriptions.id, id));
+    await Subscription.findByIdAndUpdate(id, { status: 'cancelled' });
   }
 
   // Product operations
-  async getProduct(id: string): Promise<Product | undefined> {
-    const [product] = await db.select().from(products).where(eq(products.id, id));
-    return product;
+  async getProduct(id: string): Promise<IProduct | null> {
+    return await Product.findById(id);
   }
 
-  async getProductsByArtist(artistId: string): Promise<Product[]> {
-    return await db
-      .select()
-      .from(products)
-      .where(and(eq(products.artistId, artistId), eq(products.isActive, true)))
-      .orderBy(desc(products.createdAt));
+  async getProductsByArtist(artistId: string): Promise<IProduct[]> {
+    return await Product.find({ artistId, isActive: true }).sort({ createdAt: -1 });
   }
 
-  async createProduct(product: InsertProduct): Promise<Product> {
-    const [newProduct] = await db.insert(products).values(product).returning();
-    return newProduct;
+  async createProduct(product: InsertProduct): Promise<IProduct> {
+    const newProduct = new Product(product);
+    return await newProduct.save();
   }
 
-  async updateProduct(id: string, updates: Partial<InsertProduct>): Promise<Product> {
-    const [updatedProduct] = await db
-      .update(products)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(products.id, id))
-      .returning();
-    return updatedProduct;
+  async updateProduct(id: string, updates: Partial<InsertProduct>): Promise<IProduct | null> {
+    return await Product.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteProduct(id: string): Promise<void> {
-    await db.update(products).set({ isActive: false }).where(eq(products.id, id));
+    await Product.findByIdAndUpdate(id, { isActive: false });
   }
 
-  async searchProducts(query: string, limit = 50): Promise<Product[]> {
-    return await db
-      .select()
-      .from(products)
-      .where(
-        and(
-          eq(products.isActive, true),
-          or(
-            ilike(products.name, `%${query}%`),
-            ilike(products.description, `%${query}%`)
-          )
-        )
-      )
-      .limit(limit);
+  async searchProducts(query: string, limit = 50): Promise<IProduct[]> {
+    return await Product.find({
+      isActive: true,
+      $or: [
+        { name: { $regex: query, $options: 'i' } },
+        { description: { $regex: query, $options: 'i' } }
+      ]
+    }).limit(limit);
   }
 
   // Event operations
-  async getEvent(id: string): Promise<Event | undefined> {
-    const [event] = await db.select().from(events).where(eq(events.id, id));
-    return event;
+  async getEvent(id: string): Promise<IEvent | null> {
+    return await Event.findById(id);
   }
 
-  async getEventsByArtist(artistId: string): Promise<Event[]> {
-    return await db
-      .select()
-      .from(events)
-      .where(eq(events.artistId, artistId))
-      .orderBy(asc(events.dateTime));
+  async getEventsByArtist(artistId: string): Promise<IEvent[]> {
+    return await Event.find({ artistId }).sort({ dateTime: 1 });
   }
 
-  async getUpcomingEvents(limit = 20): Promise<Event[]> {
-    return await db
-      .select()
-      .from(events)
-      .where(
-        and(
-          eq(events.status, 'published'),
-          sql`${events.dateTime} > NOW()`
-        )
-      )
-      .orderBy(asc(events.dateTime))
+  async getUpcomingEvents(limit = 20): Promise<IEvent[]> {
+    return await Event.find({
+      status: 'published',
+      dateTime: { $gt: new Date() }
+    })
+      .sort({ dateTime: 1 })
       .limit(limit);
   }
 
-  async createEvent(event: InsertEvent): Promise<Event> {
-    const [newEvent] = await db.insert(events).values(event).returning();
-    return newEvent;
+  async createEvent(event: InsertEvent): Promise<IEvent> {
+    const newEvent = new Event(event);
+    return await newEvent.save();
   }
 
-  async updateEvent(id: string, updates: Partial<InsertEvent>): Promise<Event> {
-    const [updatedEvent] = await db
-      .update(events)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(events.id, id))
-      .returning();
-    return updatedEvent;
+  async updateEvent(id: string, updates: Partial<InsertEvent>): Promise<IEvent | null> {
+    return await Event.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteEvent(id: string): Promise<void> {
-    await db.delete(events).where(eq(events.id, id));
+    await Event.findByIdAndDelete(id);
   }
 
-  async searchEvents(query: string, limit = 50): Promise<Event[]> {
-    return await db
-      .select()
-      .from(events)
-      .where(
-        and(
-          eq(events.status, 'published'),
-          or(
-            ilike(events.title, `%${query}%`),
-            ilike(events.description, `%${query}%`)
-          )
-        )
-      )
-      .limit(limit);
+  async searchEvents(query: string, limit = 50): Promise<IEvent[]> {
+    return await Event.find({
+      status: 'published',
+      $or: [
+        { title: { $regex: query, $options: 'i' } },
+        { description: { $regex: query, $options: 'i' } }
+      ]
+    }).limit(limit);
   }
 
   // Order operations
-  async getOrder(id: string): Promise<Order | undefined> {
-    const [order] = await db.select().from(orders).where(eq(orders.id, id));
-    return order;
+  async getOrder(id: string): Promise<IOrder | null> {
+    return await Order.findById(id);
   }
 
-  async getOrdersByUser(userId: string): Promise<Order[]> {
-    return await db
-      .select()
-      .from(orders)
-      .where(eq(orders.buyerId, userId))
-      .orderBy(desc(orders.createdAt));
+  async getOrdersByUser(userId: string): Promise<IOrder[]> {
+    return await Order.find({ buyerId: userId }).sort({ createdAt: -1 });
   }
 
-  async createOrder(order: InsertOrder): Promise<Order> {
-    const [newOrder] = await db.insert(orders).values(order).returning();
-    return newOrder;
+  async createOrder(order: InsertOrder): Promise<IOrder> {
+    const newOrder = new Order(order);
+    return await newOrder.save();
   }
 
-  async updateOrder(id: string, updates: Partial<InsertOrder>): Promise<Order> {
-    const [updatedOrder] = await db
-      .update(orders)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(orders.id, id))
-      .returning();
-    return updatedOrder;
+  async updateOrder(id: string, updates: Partial<InsertOrder>): Promise<IOrder | null> {
+    return await Order.findByIdAndUpdate(id, updates, { new: true });
   }
 
   // Ticket operations
-  async getTicket(id: string): Promise<Ticket | undefined> {
-    const [ticket] = await db.select().from(tickets).where(eq(tickets.id, id));
-    return ticket;
+  async getTicket(id: string): Promise<ITicket | null> {
+    return await Ticket.findById(id);
   }
 
-  async getTicketsByUser(userId: string): Promise<Ticket[]> {
-    return await db
-      .select()
-      .from(tickets)
-      .where(eq(tickets.buyerId, userId))
-      .orderBy(desc(tickets.createdAt));
+  async getTicketsByUser(userId: string): Promise<ITicket[]> {
+    return await Ticket.find({ buyerId: userId }).sort({ createdAt: -1 });
   }
 
-  async getTicketsByEvent(eventId: string): Promise<Ticket[]> {
-    return await db
-      .select()
-      .from(tickets)
-      .where(eq(tickets.eventId, eventId))
-      .orderBy(desc(tickets.createdAt));
+  async getTicketsByEvent(eventId: string): Promise<ITicket[]> {
+    return await Ticket.find({ eventId }).sort({ createdAt: -1 });
   }
 
-  async createTicket(ticket: InsertTicket): Promise<Ticket> {
-    const [newTicket] = await db.insert(tickets).values(ticket).returning();
-    return newTicket;
+  async createTicket(ticket: InsertTicket): Promise<ITicket> {
+    const newTicket = new Ticket(ticket);
+    return await newTicket.save();
   }
 
-  async updateTicket(id: string, updates: Partial<InsertTicket>): Promise<Ticket> {
-    const [updatedTicket] = await db
-      .update(tickets)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(tickets.id, id))
-      .returning();
-    return updatedTicket;
+  async updateTicket(id: string, updates: Partial<InsertTicket>): Promise<ITicket | null> {
+    return await Ticket.findByIdAndUpdate(id, updates, { new: true });
   }
 
   // Blog operations
-  async getBlog(id: string): Promise<Blog | undefined> {
-    const [blog] = await db.select().from(blogs).where(eq(blogs.id, id));
-    return blog;
+  async getBlog(id: string): Promise<IBlog | null> {
+    return await Blog.findById(id);
   }
 
-  async getBlogsByAuthor(authorId: string): Promise<Blog[]> {
-    return await db
-      .select()
-      .from(blogs)
-      .where(eq(blogs.authorId, authorId))
-      .orderBy(desc(blogs.createdAt));
+  async getBlogsByAuthor(authorId: string): Promise<IBlog[]> {
+    return await Blog.find({ authorId }).sort({ createdAt: -1 });
   }
 
-  async getPublishedBlogs(limit = 20): Promise<Blog[]> {
-    return await db
-      .select()
-      .from(blogs)
-      .where(eq(blogs.status, 'published'))
-      .orderBy(desc(blogs.publishedAt))
+  async getPublishedBlogs(limit = 20): Promise<IBlog[]> {
+    return await Blog.find({ status: 'published' })
+      .sort({ publishedAt: -1 })
       .limit(limit);
   }
 
-  async createBlog(blog: InsertBlog): Promise<Blog> {
-    const [newBlog] = await db.insert(blogs).values(blog).returning();
-    return newBlog;
+  async createBlog(blog: InsertBlog): Promise<IBlog> {
+    const newBlog = new Blog(blog);
+    return await newBlog.save();
   }
 
-  async updateBlog(id: string, updates: Partial<InsertBlog>): Promise<Blog> {
-    const [updatedBlog] = await db
-      .update(blogs)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(blogs.id, id))
-      .returning();
-    return updatedBlog;
+  async updateBlog(id: string, updates: Partial<InsertBlog>): Promise<IBlog | null> {
+    return await Blog.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteBlog(id: string): Promise<void> {
-    await db.delete(blogs).where(eq(blogs.id, id));
+    await Blog.findByIdAndDelete(id);
   }
 
   // Blog comment operations
-  async getBlogComment(id: string): Promise<BlogComment | undefined> {
-    const [comment] = await db.select().from(blogComments).where(eq(blogComments.id, id));
-    return comment;
+  async getBlogComment(id: string): Promise<IBlogComment | null> {
+    return await BlogComment.findById(id);
   }
 
-  async getBlogCommentsByBlog(blogId: string): Promise<BlogComment[]> {
-    return await db
-      .select()
-      .from(blogComments)
-      .where(eq(blogComments.blogId, blogId))
-      .orderBy(desc(blogComments.createdAt));
+  async getBlogCommentsByBlog(blogId: string): Promise<IBlogComment[]> {
+    return await BlogComment.find({ blogId }).sort({ createdAt: -1 });
   }
 
-  async createBlogComment(comment: InsertBlogComment): Promise<BlogComment> {
-    const [newComment] = await db.insert(blogComments).values(comment).returning();
-    return newComment;
+  async createBlogComment(comment: InsertBlogComment): Promise<IBlogComment> {
+    const newComment = new BlogComment(comment);
+    return await newComment.save();
   }
 
-  async updateBlogComment(id: string, updates: Partial<InsertBlogComment>): Promise<BlogComment> {
-    const [updatedComment] = await db
-      .update(blogComments)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(blogComments.id, id))
-      .returning();
-    return updatedComment;
+  async updateBlogComment(id: string, updates: Partial<InsertBlogComment>): Promise<IBlogComment | null> {
+    return await BlogComment.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteBlogComment(id: string): Promise<void> {
-    await db.delete(blogComments).where(eq(blogComments.id, id));
+    await BlogComment.findByIdAndDelete(id);
   }
 
   // Follow operations
-  async followArtist(followerId: string, artistId: string): Promise<Follow> {
-    const [follow] = await db.insert(follows).values({
-      followerId,
-      followingId: artistId,
-    }).returning();
-    return follow;
+  async followArtist(followerId: string, artistId: string): Promise<IFollow> {
+    const follow = new Follow({ followerId, followingId: artistId });
+    return await follow.save();
   }
 
   async unfollowArtist(followerId: string, artistId: string): Promise<void> {
-    await db.delete(follows).where(
-      and(
-        eq(follows.followerId, followerId),
-        eq(follows.followingId, artistId)
-      )
-    );
+    await Follow.findOneAndDelete({ followerId, followingId: artistId });
   }
 
-  async getFollowedArtists(userId: string): Promise<Artist[]> {
-    return await db
-      .select({
-        id: artists.id,
-        userId: artists.userId,
-        verification: artists.verification,
-        stats: artists.stats,
-        revenue: artists.revenue,
-        payout: artists.payout,
-        featured: artists.featured,
-        trendingScore: artists.trendingScore,
-        followers: artists.followers,
-        createdAt: artists.createdAt,
-        updatedAt: artists.updatedAt,
-      })
-      .from(follows)
-      .innerJoin(artists, eq(follows.followingId, artists.id))
-      .where(eq(follows.followerId, userId))
-      .orderBy(desc(follows.createdAt));
+  async getFollowedArtists(userId: string): Promise<IArtist[]> {
+    const follows = await Follow.find({ followerId: userId }).populate('followingId');
+    return follows.map(f => f.followingId as any);
   }
 
   async isFollowing(followerId: string, artistId: string): Promise<boolean> {
-    const [follow] = await db
-      .select()
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerId, followerId),
-          eq(follows.followingId, artistId)
-        )
-      );
+    const follow = await Follow.findOne({ followerId, followingId: artistId });
     return !!follow;
   }
 
   // Like operations
-  async likeSong(userId: string, songId: string): Promise<Like> {
-    const [like] = await db.insert(likes).values({
-      userId,
-      songId,
-    }).returning();
-    return like;
+  async likeSong(userId: string, songId: string): Promise<ILike> {
+    const like = new Like({ userId, songId });
+    return await like.save();
   }
 
   async unlikeSong(userId: string, songId: string): Promise<void> {
-    await db.delete(likes).where(
-      and(
-        eq(likes.userId, userId),
-        eq(likes.songId, songId)
-      )
-    );
+    await Like.findOneAndDelete({ userId, songId });
   }
 
-  async getLikedSongs(userId: string): Promise<Song[]> {
-    return await db
-      .select({
-        id: songs.id,
-        title: songs.title,
-        artistId: songs.artistId,
-        albumId: songs.albumId,
-        collaborators: songs.collaborators,
-        genre: songs.genre,
-        subGenres: songs.subGenres,
-        duration: songs.duration,
-        releaseDate: songs.releaseDate,
-        files: songs.files,
-        metadata: songs.metadata,
-        visibility: songs.visibility,
-        monetization: songs.monetization,
-        analytics: songs.analytics,
-        createdAt: songs.createdAt,
-        updatedAt: songs.updatedAt,
-      })
-      .from(likes)
-      .innerJoin(songs, eq(likes.songId, songs.id))
-      .where(eq(likes.userId, userId))
-      .orderBy(desc(likes.createdAt));
+  async getLikedSongs(userId: string): Promise<ISong[]> {
+    const likes = await Like.find({ userId }).populate('songId');
+    return likes.map(l => l.songId as any);
   }
 
   async isLiked(userId: string, songId: string): Promise<boolean> {
-    const [like] = await db
-      .select()
-      .from(likes)
-      .where(
-        and(
-          eq(likes.userId, userId),
-          eq(likes.songId, songId)
-        )
-      );
+    const like = await Like.findOne({ userId, songId });
     return !!like;
   }
 
   // Analytics operations
-  async trackEvent(analyticsData: InsertAnalytics): Promise<Analytics> {
-    const [analytics] = await db.insert(analytics).values(analyticsData).returning();
-    return analytics;
+  async trackEvent(analyticsData: InsertAnalytics): Promise<IAnalytics> {
+    const analytics = new Analytics(analyticsData);
+    return await analytics.save();
   }
 
   async getAnalytics(filters: {
@@ -791,115 +562,81 @@ export class DatabaseStorage implements IStorage {
     eventType?: string;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<Analytics[]> {
-    let query = db.select().from(analytics);
-    
-    const conditions = [];
-    if (filters.userId) conditions.push(eq(analytics.userId, filters.userId));
-    if (filters.eventType) conditions.push(eq(analytics.eventType, filters.eventType));
-    if (filters.startDate) conditions.push(sql`${analytics.timestamp} >= ${filters.startDate}`);
-    if (filters.endDate) conditions.push(sql`${analytics.timestamp} <= ${filters.endDate}`);
+  }): Promise<IAnalytics[]> {
+    const query: any = {};
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    if (filters.userId) query.userId = filters.userId;
+    if (filters.eventType) query.eventType = filters.eventType;
+    if (filters.startDate) query.timestamp = { $gte: filters.startDate };
+    if (filters.endDate) query.timestamp = { ...query.timestamp, $lte: filters.endDate };
 
-    return await query.orderBy(desc(analytics.timestamp));
+    return await Analytics.find(query).sort({ timestamp: -1 });
   }
 
   // Notification operations
-  async getNotification(id: string): Promise<Notification | undefined> {
-    const [notification] = await db.select().from(notifications).where(eq(notifications.id, id));
-    return notification;
+  async getNotification(id: string): Promise<INotification | null> {
+    return await Notification.findById(id);
   }
 
-  async getNotificationsByUser(userId: string): Promise<Notification[]> {
-    return await db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.recipientId, userId))
-      .orderBy(desc(notifications.createdAt));
+  async getNotificationsByUser(userId: string): Promise<INotification[]> {
+    return await Notification.find({ recipientId: userId }).sort({ createdAt: -1 });
   }
 
-  async createNotification(notification: InsertNotification): Promise<Notification> {
-    const [newNotification] = await db.insert(notifications).values(notification).returning();
-    return newNotification;
+  async createNotification(notification: InsertNotification): Promise<INotification> {
+    const newNotification = new Notification(notification);
+    return await newNotification.save();
   }
 
   async markNotificationAsRead(id: string): Promise<void> {
-    await db
-      .update(notifications)
-      .set({ isRead: true, readAt: new Date() })
-      .where(eq(notifications.id, id));
+    await Notification.findByIdAndUpdate(id, { isRead: true, readAt: new Date() });
   }
 
   async markAllNotificationsAsRead(userId: string): Promise<void> {
-    await db
-      .update(notifications)
-      .set({ isRead: true, readAt: new Date() })
-      .where(eq(notifications.recipientId, userId));
+    await Notification.updateMany(
+      { recipientId: userId },
+      { isRead: true, readAt: new Date() }
+    );
   }
 
   // Report operations
-  async getReport(id: string): Promise<Report | undefined> {
-    const [report] = await db.select().from(reports).where(eq(reports.id, id));
-    return report;
+  async getReport(id: string): Promise<IReport | null> {
+    return await Report.findById(id);
   }
 
-  async getReports(status?: string): Promise<Report[]> {
-    let query = db.select().from(reports);
-    
-    if (status) {
-      query = query.where(eq(reports.status, status as any));
-    }
-
-    return await query.orderBy(desc(reports.createdAt));
+  async getReports(status?: string): Promise<IReport[]> {
+    const query = status ? { status } : {};
+    return await Report.find(query).sort({ createdAt: -1 });
   }
 
-  async createReport(report: InsertReport): Promise<Report> {
-    const [newReport] = await db.insert(reports).values(report).returning();
-    return newReport;
+  async createReport(report: InsertReport): Promise<IReport> {
+    const newReport = new Report(report);
+    return await newReport.save();
   }
 
-  async updateReport(id: string, updates: Partial<InsertReport>): Promise<Report> {
-    const [updatedReport] = await db
-      .update(reports)
-      .set(updates)
-      .where(eq(reports.id, id))
-      .returning();
-    return updatedReport;
+  async updateReport(id: string, updates: Partial<InsertReport>): Promise<IReport | null> {
+    return await Report.findByIdAndUpdate(id, updates, { new: true });
   }
 
   // Ad operations
-  async getAd(id: string): Promise<Ad | undefined> {
-    const [ad] = await db.select().from(ads).where(eq(ads.id, id));
-    return ad;
+  async getAd(id: string): Promise<IAd | null> {
+    return await Ad.findById(id);
   }
 
-  async getActiveAds(): Promise<Ad[]> {
-    return await db
-      .select()
-      .from(ads)
-      .where(eq(ads.status, 'active'))
-      .orderBy(desc(ads.createdAt));
+  async getActiveAds(): Promise<IAd[]> {
+    return await Ad.find({ status: 'active' }).sort({ createdAt: -1 });
   }
 
-  async createAd(ad: InsertAd): Promise<Ad> {
-    const [newAd] = await db.insert(ads).values(ad).returning();
-    return newAd;
+  async createAd(ad: InsertAd): Promise<IAd> {
+    const newAd = new Ad(ad);
+    return await newAd.save();
   }
 
-  async updateAd(id: string, updates: Partial<InsertAd>): Promise<Ad> {
-    const [updatedAd] = await db
-      .update(ads)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(ads.id, id))
-      .returning();
-    return updatedAd;
+  async updateAd(id: string, updates: Partial<InsertAd>): Promise<IAd | null> {
+    return await Ad.findByIdAndUpdate(id, updates, { new: true });
   }
 
   async deleteAd(id: string): Promise<void> {
-    await db.delete(ads).where(eq(ads.id, id));
+    await Ad.findByIdAndDelete(id);
   }
 }
 

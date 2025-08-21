@@ -1,14 +1,6 @@
-import { defineConfig } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+// This file is no longer needed with MongoDB/Mongoose setup
+// Keeping it as a placeholder to avoid import errors
+// You can delete this file if no imports reference it
 
-export default defineConfig({
-  out: "./migrations",
-  schema: "./shared/schema.ts",
-  dialect: "postgresql",
-  dbCredentials: {
-    url: process.env.DATABASE_URL,
-  },
-});
+export default {};

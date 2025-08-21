@@ -1,6 +1,8 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction, Express } from 'express';
 import { authService } from './auth';
 import type { User } from '@shared/schema';
+import express from 'express';
+import cors from 'cors';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -88,7 +90,7 @@ export const rateLimiter = (windowMs: number, max: number) => {
     }
 
     const requestTimes = requests.get(key).filter((time: number) => time > windowStart);
-    
+
     if (requestTimes.length >= max) {
       return res.status(429).json({ message: 'Too many requests' });
     }
@@ -125,4 +127,27 @@ export const errorHandler = (error: any, req: Request, res: Response, next: Next
     message: 'Internal server error',
     ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
   });
+};
+
+export const setupMiddleware = (app: Express) => {
+  // CORS configuration
+  app.use(cors({
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.FRONTEND_URL 
+      : true, // Allow all origins in development
+    credentials: true,
+  }));
+
+  // Body parsing middleware
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Request logging
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
+    next();
+  });
+
+  // Error handling
+  app.use(errorHandler);
 };

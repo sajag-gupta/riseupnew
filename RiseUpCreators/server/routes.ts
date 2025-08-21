@@ -6,9 +6,9 @@ import { authenticate, requireRole, optionalAuth, validateRequest, rateLimiter, 
 import { cloudinaryService } from "./services/cloudinary";
 import { emailService } from "./services/email";
 import { analyticsService } from "./services/analytics";
-import { 
-  insertUserSchema, 
-  insertSongSchema, 
+import {
+  insertUserSchema,
+  insertSongSchema,
   insertAlbumSchema,
   insertPlaylistSchema,
   insertProductSchema,
@@ -50,7 +50,7 @@ const searchSchema = z.object({
   limit: z.coerce.number().min(1).max(100).optional(),
 });
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export function setupRoutes(app: Express): void {
   // Rate limiting
   app.use('/api/auth', rateLimiter(15 * 60 * 1000, 5)); // 5 requests per 15 minutes for auth
   app.use('/api', rateLimiter(60 * 1000, 100)); // 100 requests per minute for API
@@ -63,13 +63,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email, password, name, role = 'fan' } = req.body;
       const { user, token } = await authService.register(email, password, name, role);
-      
+
       // Send welcome email
       await emailService.sendWelcomeEmail(user.email, user.name, user.role);
-      
+
       // Track signup
       await analyticsService.trackSignup(user.role, user.id);
-      
+
       res.json({ user, token });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -80,10 +80,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email, password } = req.body;
       const { user, token } = await authService.login(email, password);
-      
+
       // Track login
       await analyticsService.trackLogin(user.id);
-      
+
       res.json({ user, token });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -157,13 +157,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { featured } = req.query;
       let artists;
-      
+
       if (featured === 'true') {
         artists = await storage.getFeaturedArtists(12);
       } else {
         artists = await storage.getFeaturedArtists(50);
       }
-      
+
       res.json(artists);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -199,10 +199,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/artists/:id/follow', authenticate, async (req: any, res) => {
     try {
       await storage.followArtist(req.user.id, req.params.id);
-      
+
       // Track follow
       await analyticsService.trackFollow(req.params.id, req.user.id);
-      
+
       res.json({ message: 'Artist followed successfully' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -226,7 +226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { trending, artistId, limit = 20 } = req.query;
       let songs;
-      
+
       if (trending === 'true') {
         songs = await storage.getTrendingSongs(parseInt(limit));
       } else if (artistId) {
@@ -234,7 +234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         songs = await storage.getTrendingSongs(parseInt(limit));
       }
-      
+
       res.json(songs);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -266,7 +266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   ]), async (req: any, res) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      
+
       if (!files.audio || !files.audio[0]) {
         return res.status(400).json({ message: 'Audio file is required' });
       }
@@ -319,7 +319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Track play event
       await analyticsService.trackPlay(req.params.id, req.user?.id);
-      
+
       // Update song play count
       const song = await storage.getSong(req.params.id);
       if (song) {
@@ -329,7 +329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         await storage.updateSong(req.params.id, { analytics: updatedAnalytics });
       }
-      
+
       res.json({ message: 'Play tracked successfully' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -339,10 +339,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/songs/:id/like', authenticate, async (req: any, res) => {
     try {
       await storage.likeSong(req.user.id, req.params.id);
-      
+
       // Track like
       await analyticsService.trackLike(req.params.id, req.user.id);
-      
+
       res.json({ message: 'Song liked successfully' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -409,28 +409,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/search', optionalAuth, validateRequest(searchSchema), async (req: any, res) => {
     try {
       const { q, type = 'all', limit = 20 } = req.query;
-      
+
       // Track search
       await analyticsService.trackSearch(q, 0, req.user?.id);
-      
+
       const results: any = {};
-      
+
       if (type === 'all' || type === 'songs') {
         results.songs = await storage.searchSongs(q, limit);
       }
-      
+
       if (type === 'all' || type === 'artists') {
         results.artists = await storage.searchArtists(q, limit);
       }
-      
+
       if (type === 'all' || type === 'events') {
         results.events = await storage.searchEvents(q, limit);
       }
-      
+
       if (type === 'all' || type === 'products') {
         results.products = await storage.searchProducts(q, limit);
       }
-      
+
       res.json(results);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -445,7 +445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { upcoming, artistId, limit = 20 } = req.query;
       let events;
-      
+
       if (upcoming === 'true') {
         events = await storage.getUpcomingEvents(parseInt(limit));
       } else if (artistId) {
@@ -453,7 +453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         events = await storage.getUpcomingEvents(parseInt(limit));
       }
-      
+
       res.json(events);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -499,14 +499,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { artistId, limit = 20 } = req.query;
       let products;
-      
+
       if (artistId) {
         products = await storage.getProductsByArtist(artistId);
       } else {
         // Get all active products (implement in storage)
         products = [];
       }
-      
+
       res.json(products);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -570,13 +570,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const order = await storage.createOrder(orderData);
-      
+
       // Send order confirmation email
       await emailService.sendOrderConfirmationEmail(req.user.email, order);
-      
+
       // Track purchase
       await analyticsService.trackPurchase(order.id, order.totals.total, req.user.id);
-      
+
       res.json(order);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -613,10 +613,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const subscription = await storage.createSubscription(subscriptionData);
-      
+
       // Track subscription
       await analyticsService.trackSubscribe(subscription.artistId, subscription.tier.name, req.user.id);
-      
+
       res.json(subscription);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -634,7 +634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user?.id,
         userAgent: req.headers['user-agent'],
       };
-      
+
       await analyticsService.track(eventData);
       res.json({ message: 'Event tracked successfully' });
     } catch (error: any) {
@@ -666,7 +666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalRevenue: 0,
         // These would need to be implemented in storage
       };
-      
+
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -708,7 +708,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Error handling middleware
   app.use(errorHandler);
-
-  const httpServer = createServer(app);
-  return httpServer;
 }
