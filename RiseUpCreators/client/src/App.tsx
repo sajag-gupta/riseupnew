@@ -19,9 +19,9 @@ import Register from "@/pages/auth/Register";
 import ArtistProfile from "@/pages/artist/ArtistProfile";
 import ArtistDashboard from "@/pages/artist/Dashboard";
 import FanDashboard from "@/pages/fan/Dashboard";
-import Discover from "@/pages/music/Discover";
-import Events from "@/pages/events/Events";
-import Merch from "@/pages/merch/Merch";
+import Discover from "@/pages/Discover";
+import Events from "@/pages/Events";
+import Merch from "@/pages/MerchStore";
 import AdminPanel from "@/pages/admin/AdminPanel";
 import NotFound from "@/pages/not-found";
 
