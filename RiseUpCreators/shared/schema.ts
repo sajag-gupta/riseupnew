@@ -1,54 +1,39 @@
-import { sql } from 'drizzle-orm';
-import {
-  pgTable,
-  varchar,
-  text,
-  timestamp,
-  boolean,
-  integer,
-  decimal,
-  jsonb,
-  pgEnum,
-  index,
-  uuid
-} from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import mongoose, { Schema, Document } from 'mongoose';
+import { z } from 'zod';
 
 // Enums
-export const userRoleEnum = pgEnum('user_role', ['fan', 'artist', 'admin']);
-export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'approved', 'rejected']);
-export const visibilityEnum = pgEnum('visibility', ['public', 'subscriber_only', 'private']);
-export const orderStatusEnum = pgEnum('order_status', ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded']);
-export const subscriptionStatusEnum = pgEnum('subscription_status', ['active', 'cancelled', 'expired', 'paused']);
-export const eventStatusEnum = pgEnum('event_status', ['draft', 'published', 'cancelled', 'completed']);
-export const contentStatusEnum = pgEnum('content_status', ['draft', 'published', 'archived']);
-export const adStatusEnum = pgEnum('ad_status', ['draft', 'pending', 'active', 'paused', 'completed']);
-export const reportStatusEnum = pgEnum('report_status', ['pending', 'reviewed', 'resolved', 'dismissed']);
-export const ticketStatusEnum = pgEnum('ticket_status', ['valid', 'used', 'refunded', 'transferred']);
+export const userRoles = ['fan', 'artist', 'admin'] as const;
+export const verificationStatuses = ['pending', 'approved', 'rejected'] as const;
+export const visibilityTypes = ['public', 'subscriber_only', 'private'] as const;
+export const orderStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'] as const;
+export const subscriptionStatuses = ['active', 'cancelled', 'expired', 'paused'] as const;
+export const eventStatuses = ['draft', 'published', 'cancelled', 'completed'] as const;
+export const contentStatuses = ['draft', 'published', 'archived'] as const;
+export const adStatuses = ['draft', 'pending', 'active', 'paused', 'completed'] as const;
+export const reportStatuses = ['pending', 'reviewed', 'resolved', 'dismissed'] as const;
+export const ticketStatuses = ['valid', 'used', 'refunded', 'transferred'] as const;
 
-// Users table
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: varchar("email", { length: 255 }).unique().notNull(),
-  passwordHash: varchar("password_hash", { length: 255 }),
-  googleId: varchar("google_id", { length: 255 }),
-  role: userRoleEnum("role").default('fan').notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  avatar: varchar("avatar", { length: 500 }),
-  bio: text("bio"),
-  location: varchar("location", { length: 255 }),
-  dateOfBirth: timestamp("date_of_birth"),
-  genres: jsonb("genres").$type<string[]>().default([]),
-  socialLinks: jsonb("social_links").$type<{
+// User Interface and Schema
+export interface IUser extends Document {
+  _id: string;
+  email: string;
+  passwordHash?: string;
+  googleId?: string;
+  role: typeof userRoles[number];
+  name: string;
+  avatar?: string;
+  bio?: string;
+  location?: string;
+  dateOfBirth?: Date;
+  genres: string[];
+  socialLinks: {
     instagram?: string;
     twitter?: string;
     youtube?: string;
     spotify?: string;
     website?: string;
-  }>().default({}),
-  settings: jsonb("settings").$type<{
+  };
+  settings: {
     emailNotifications: boolean;
     pushNotifications: boolean;
     privacy: {
@@ -60,136 +45,207 @@ export const users = pgTable("users", {
       personalizedAds: boolean;
       frequency: string;
     };
-  }>().default({
-    emailNotifications: true,
-    pushNotifications: true,
-    privacy: {
-      showListeningActivity: true,
-      showPlaylists: true,
-      allowMessages: true,
-    },
-    adPreferences: {
-      personalizedAds: true,
-      frequency: 'normal',
-    },
-  }),
-  subscription: jsonb("subscription").$type<{
+  };
+  subscription: {
     isPremium: boolean;
     plan?: string;
     startDate?: Date;
     endDate?: Date;
     autoRenew: boolean;
-  }>().default({
-    isPremium: false,
-    autoRenew: false,
-  }),
-  analytics: jsonb("analytics").$type<{
+  };
+  analytics: {
     totalPlays: number;
     totalFollowers: number;
-    deviceInfo?: object;
-  }>().default({
-    totalPlays: 0,
-    totalFollowers: 0,
-  }),
-  lastActive: timestamp("last_active").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+    deviceInfo?: any;
+  };
+  lastActive: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Artists table (extended user data)
-export const artists = pgTable("artists", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  verification: jsonb("verification").$type<{
-    status: 'pending' | 'approved' | 'rejected';
+const userSchema = new Schema<IUser>({
+  email: { type: String, required: true, unique: true, maxlength: 255 },
+  passwordHash: { type: String, maxlength: 255 },
+  googleId: { type: String, maxlength: 255 },
+  role: { type: String, enum: userRoles, default: 'fan', required: true },
+  name: { type: String, required: true, maxlength: 255 },
+  avatar: { type: String, maxlength: 500 },
+  bio: String,
+  location: { type: String, maxlength: 255 },
+  dateOfBirth: Date,
+  genres: { type: [String], default: [] },
+  socialLinks: {
+    instagram: String,
+    twitter: String,
+    youtube: String,
+    spotify: String,
+    website: String,
+    _id: false
+  },
+  settings: {
+    emailNotifications: { type: Boolean, default: true },
+    pushNotifications: { type: Boolean, default: true },
+    privacy: {
+      showListeningActivity: { type: Boolean, default: true },
+      showPlaylists: { type: Boolean, default: true },
+      allowMessages: { type: Boolean, default: true },
+      _id: false
+    },
+    adPreferences: {
+      personalizedAds: { type: Boolean, default: true },
+      frequency: { type: String, default: 'normal' },
+      _id: false
+    },
+    _id: false
+  },
+  subscription: {
+    isPremium: { type: Boolean, default: false },
+    plan: String,
+    startDate: Date,
+    endDate: Date,
+    autoRenew: { type: Boolean, default: false },
+    _id: false
+  },
+  analytics: {
+    totalPlays: { type: Number, default: 0 },
+    totalFollowers: { type: Number, default: 0 },
+    deviceInfo: Schema.Types.Mixed,
+    _id: false
+  },
+  lastActive: { type: Date, default: Date.now }
+}, { timestamps: true });
+
+// Artist Interface and Schema
+export interface IArtist extends Document {
+  _id: string;
+  userId: mongoose.Types.ObjectId;
+  verification: {
+    status: typeof verificationStatuses[number];
     submittedAt?: Date;
     reviewedAt?: Date;
     reviewedBy?: string;
     notes?: string;
     documents?: string[];
-  }>().default({
-    status: 'pending',
-  }),
-  stats: jsonb("stats").$type<{
+  };
+  stats: {
     monthlyListeners: number;
     totalStreams: number;
     totalRevenue: number;
     followerGrowth: { date: Date; count: number }[];
     topCountries: { country: string; percentage: number }[];
-  }>().default({
-    monthlyListeners: 0,
-    totalStreams: 0,
-    totalRevenue: 0,
-    followerGrowth: [],
-    topCountries: [],
-  }),
-  revenue: jsonb("revenue").$type<{
+  };
+  revenue: {
     subscriptions: number;
     merchandise: number;
     events: number;
     ads: number;
     tips: number;
-  }>().default({
-    subscriptions: 0,
-    merchandise: 0,
-    events: 0,
-    ads: 0,
-    tips: 0,
-  }),
-  payout: jsonb("payout").$type<{
-    bankDetails?: object;
+  };
+  payout: {
+    bankDetails?: any;
     paypalEmail?: string;
-    taxInfo?: object;
+    taxInfo?: any;
     pendingAmount: number;
     lastPayoutDate?: Date;
-    payoutHistory: object[];
-  }>().default({
-    pendingAmount: 0,
-    payoutHistory: [],
-  }),
-  featured: boolean("featured").default(false),
-  trendingScore: decimal("trending_score", { precision: 10, scale: 2 }).default('0'),
-  followers: jsonb("followers").$type<string[]>().default([]),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+    payoutHistory: any[];
+  };
+  featured: boolean;
+  trendingScore: number;
+  followers: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Albums table
-export const albums = pgTable("albums", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: varchar("title", { length: 255 }).notNull(),
-  artistId: uuid("artist_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  description: text("description"),
-  releaseDate: timestamp("release_date"),
-  type: varchar("type", { length: 50 }).default('album'), // album, ep, single
-  artwork: varchar("artwork", { length: 500 }),
-  genres: jsonb("genres").$type<string[]>().default([]),
-  totalDuration: integer("total_duration").default(0),
-  price: decimal("price", { precision: 10, scale: 2 }),
-  isPublic: boolean("is_public").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+const artistSchema = new Schema<IArtist>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  verification: {
+    status: { type: String, enum: verificationStatuses, default: 'pending' },
+    submittedAt: Date,
+    reviewedAt: Date,
+    reviewedBy: String,
+    notes: String,
+    documents: [String],
+    _id: false
+  },
+  stats: {
+    monthlyListeners: { type: Number, default: 0 },
+    totalStreams: { type: Number, default: 0 },
+    totalRevenue: { type: Number, default: 0 },
+    followerGrowth: [{ date: Date, count: Number, _id: false }],
+    topCountries: [{ country: String, percentage: Number, _id: false }],
+    _id: false
+  },
+  revenue: {
+    subscriptions: { type: Number, default: 0 },
+    merchandise: { type: Number, default: 0 },
+    events: { type: Number, default: 0 },
+    ads: { type: Number, default: 0 },
+    tips: { type: Number, default: 0 },
+    _id: false
+  },
+  payout: {
+    bankDetails: Schema.Types.Mixed,
+    paypalEmail: String,
+    taxInfo: Schema.Types.Mixed,
+    pendingAmount: { type: Number, default: 0 },
+    lastPayoutDate: Date,
+    payoutHistory: { type: [Schema.Types.Mixed], default: [] },
+    _id: false
+  },
+  featured: { type: Boolean, default: false },
+  trendingScore: { type: Number, default: 0 },
+  followers: { type: [String], default: [] }
+}, { timestamps: true });
 
-// Songs table
-export const songs = pgTable("songs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: varchar("title", { length: 255 }).notNull(),
-  artistId: uuid("artist_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  albumId: uuid("album_id").references(() => albums.id),
-  collaborators: jsonb("collaborators").$type<string[]>().default([]),
-  genre: varchar("genre", { length: 100 }),
-  subGenres: jsonb("sub_genres").$type<string[]>().default([]),
-  duration: integer("duration").notNull(), // in seconds
-  releaseDate: timestamp("release_date").defaultNow(),
-  files: jsonb("files").$type<{
+// Album Interface and Schema
+export interface IAlbum extends Document {
+  _id: string;
+  title: string;
+  artistId: mongoose.Types.ObjectId;
+  description?: string;
+  releaseDate?: Date;
+  type: string;
+  artwork?: string;
+  genres: string[];
+  totalDuration: number;
+  price?: number;
+  isPublic: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const albumSchema = new Schema<IAlbum>({
+  title: { type: String, required: true, maxlength: 255 },
+  artistId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true },
+  description: String,
+  releaseDate: Date,
+  type: { type: String, maxlength: 50, default: 'album' },
+  artwork: { type: String, maxlength: 500 },
+  genres: { type: [String], default: [] },
+  totalDuration: { type: Number, default: 0 },
+  price: Number,
+  isPublic: { type: Boolean, default: true }
+}, { timestamps: true });
+
+// Song Interface and Schema
+export interface ISong extends Document {
+  _id: string;
+  title: string;
+  artistId: mongoose.Types.ObjectId;
+  albumId?: mongoose.Types.ObjectId;
+  collaborators: string[];
+  genre?: string;
+  subGenres: string[];
+  duration: number;
+  releaseDate: Date;
+  files: {
     audioUrl: string;
     audioFileId: string;
     artworkUrl?: string;
     artworkFileId?: string;
     waveformData?: number[];
-  }>().notNull(),
-  metadata: jsonb("metadata").$type<{
+  };
+  metadata: {
     bpm?: number;
     key?: string;
     mood?: string;
@@ -198,182 +254,292 @@ export const songs = pgTable("songs", {
     tags?: string[];
     lyrics?: string;
     credits?: { role: string; name: string }[];
-  }>().default({}),
-  visibility: visibilityEnum("visibility").default('public'),
-  monetization: jsonb("monetization").$type<{
+  };
+  visibility: typeof visibilityTypes[number];
+  monetization: {
     isMonetized: boolean;
     adEnabled: boolean;
     price?: number;
     royaltySplit?: { collaborator: string; percentage: number }[];
-  }>().default({
-    isMonetized: false,
-    adEnabled: true,
-  }),
-  analytics: jsonb("analytics").$type<{
+  };
+  analytics: {
     playCount: number;
     uniqueListeners: number;
     likeCount: number;
     shareCount: number;
     downloadCount: number;
     trendingScore: number;
-    demographics?: object;
+    demographics?: any;
     playHistory: { date: Date; plays: number }[];
-  }>().default({
-    playCount: 0,
-    uniqueListeners: 0,
-    likeCount: 0,
-    shareCount: 0,
-    downloadCount: 0,
-    trendingScore: 0,
-    playHistory: [],
-  }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Playlists table
-export const playlists = pgTable("playlists", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  ownerId: uuid("owner_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  songs: jsonb("songs").$type<string[]>().default([]),
-  coverArt: varchar("cover_art", { length: 500 }),
-  isPublic: boolean("is_public").default(false),
-  isCollaborative: boolean("is_collaborative").default(false),
-  collaborators: jsonb("collaborators").$type<string[]>().default([]),
-  analytics: jsonb("analytics").$type<{
+const songSchema = new Schema<ISong>({
+  title: { type: String, required: true, maxlength: 255 },
+  artistId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true },
+  albumId: { type: Schema.Types.ObjectId, ref: 'Album' },
+  collaborators: { type: [String], default: [] },
+  genre: { type: String, maxlength: 100 },
+  subGenres: { type: [String], default: [] },
+  duration: { type: Number, required: true },
+  releaseDate: { type: Date, default: Date.now },
+  files: {
+    audioUrl: { type: String, required: true },
+    audioFileId: { type: String, required: true },
+    artworkUrl: String,
+    artworkFileId: String,
+    waveformData: [Number],
+    _id: false
+  },
+  metadata: {
+    bpm: Number,
+    key: String,
+    mood: String,
+    energy: Number,
+    danceability: Number,
+    tags: [String],
+    lyrics: String,
+    credits: [{ role: String, name: String, _id: false }],
+    _id: false
+  },
+  visibility: { type: String, enum: visibilityTypes, default: 'public' },
+  monetization: {
+    isMonetized: { type: Boolean, default: false },
+    adEnabled: { type: Boolean, default: true },
+    price: Number,
+    royaltySplit: [{ collaborator: String, percentage: Number, _id: false }],
+    _id: false
+  },
+  analytics: {
+    playCount: { type: Number, default: 0 },
+    uniqueListeners: { type: Number, default: 0 },
+    likeCount: { type: Number, default: 0 },
+    shareCount: { type: Number, default: 0 },
+    downloadCount: { type: Number, default: 0 },
+    trendingScore: { type: Number, default: 0 },
+    demographics: Schema.Types.Mixed,
+    playHistory: [{ date: Date, plays: Number, _id: false }],
+    _id: false
+  }
+}, { timestamps: true });
+
+// Playlist Interface and Schema
+export interface IPlaylist extends Document {
+  _id: string;
+  name: string;
+  description?: string;
+  ownerId: mongoose.Types.ObjectId;
+  songs: string[];
+  coverArt?: string;
+  isPublic: boolean;
+  isCollaborative: boolean;
+  collaborators: string[];
+  analytics: {
     playCount: number;
     likeCount: number;
     shareCount: number;
     followerCount: number;
-  }>().default({
-    playCount: 0,
-    likeCount: 0,
-    shareCount: 0,
-    followerCount: 0,
-  }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Subscriptions table (fan to artist)
-export const subscriptions = pgTable("subscriptions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  fanId: uuid("fan_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  artistId: uuid("artist_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  tier: jsonb("tier").$type<{
+const playlistSchema = new Schema<IPlaylist>({
+  name: { type: String, required: true, maxlength: 255 },
+  description: String,
+  ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  songs: { type: [String], default: [] },
+  coverArt: { type: String, maxlength: 500 },
+  isPublic: { type: Boolean, default: false },
+  isCollaborative: { type: Boolean, default: false },
+  collaborators: { type: [String], default: [] },
+  analytics: {
+    playCount: { type: Number, default: 0 },
+    likeCount: { type: Number, default: 0 },
+    shareCount: { type: Number, default: 0 },
+    followerCount: { type: Number, default: 0 },
+    _id: false
+  }
+}, { timestamps: true });
+
+// Subscription Interface and Schema
+export interface ISubscription extends Document {
+  _id: string;
+  fanId: mongoose.Types.ObjectId;
+  artistId: mongoose.Types.ObjectId;
+  tier: {
     name: string;
     price: number;
     currency: string;
-    interval: string; // monthly/yearly
+    interval: string;
     perks: string[];
-  }>().notNull(),
-  status: subscriptionStatusEnum("status").default('active'),
-  startDate: timestamp("start_date").defaultNow(),
-  endDate: timestamp("end_date"),
-  nextBillDate: timestamp("next_bill_date"),
-  payment: jsonb("payment").$type<{
+  };
+  status: typeof subscriptionStatuses[number];
+  startDate: Date;
+  endDate?: Date;
+  nextBillDate?: Date;
+  payment: {
     razorpaySubscriptionId?: string;
     razorpayCustomerId?: string;
-    paymentMethod?: object;
-  }>().default({}),
-  analytics: jsonb("analytics").$type<{
+    paymentMethod?: any;
+  };
+  analytics: {
     totalPaid: number;
     renewalCount: number;
     engagementScore: number;
-  }>().default({
-    totalPaid: 0,
-    renewalCount: 0,
-    engagementScore: 0,
-  }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Products table (merchandise)
-export const products = pgTable("products", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  artistId: uuid("artist_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  category: varchar("category", { length: 100 }),
-  subcategory: varchar("subcategory", { length: 100 }),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  currency: varchar("currency", { length: 3 }).default('USD'),
-  images: jsonb("images").$type<string[]>().default([]),
-  mainImage: varchar("main_image", { length: 500 }),
-  variants: jsonb("variants").$type<{
+const subscriptionSchema = new Schema<ISubscription>({
+  fanId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  artistId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true },
+  tier: {
+    name: { type: String, required: true },
+    price: { type: Number, required: true },
+    currency: { type: String, required: true },
+    interval: { type: String, required: true },
+    perks: { type: [String], required: true },
+    _id: false
+  },
+  status: { type: String, enum: subscriptionStatuses, default: 'active' },
+  startDate: { type: Date, default: Date.now },
+  endDate: Date,
+  nextBillDate: Date,
+  payment: {
+    razorpaySubscriptionId: String,
+    razorpayCustomerId: String,
+    paymentMethod: Schema.Types.Mixed,
+    _id: false
+  },
+  analytics: {
+    totalPaid: { type: Number, default: 0 },
+    renewalCount: { type: Number, default: 0 },
+    engagementScore: { type: Number, default: 0 },
+    _id: false
+  }
+}, { timestamps: true });
+
+// Product Interface and Schema
+export interface IProduct extends Document {
+  _id: string;
+  name: string;
+  description?: string;
+  artistId: mongoose.Types.ObjectId;
+  category?: string;
+  subcategory?: string;
+  price: number;
+  currency: string;
+  images: string[];
+  mainImage?: string;
+  variants: {
     name: string;
     options: string[];
     priceModifier: number;
     stock: number;
-  }[]>().default([]),
-  inventory: jsonb("inventory").$type<{
+  }[];
+  inventory: {
     totalStock: number;
     soldCount: number;
     lowStockThreshold: number;
     isInStock: boolean;
-  }>().default({
-    totalStock: 0,
-    soldCount: 0,
-    lowStockThreshold: 5,
-    isInStock: true,
-  }),
-  shipping: jsonb("shipping").$type<{
+  };
+  shipping: {
     dimensions: { length: number; width: number; height: number };
     weight: number;
     shippingRates: { region: string; rate: number }[];
     processingTime: string;
-  }>().default({
-    dimensions: { length: 0, width: 0, height: 0 },
-    weight: 0,
-    shippingRates: [],
-    processingTime: '1-3 business days',
-  }),
-  seo: jsonb("seo").$type<{
+  };
+  seo: {
     tags: string[];
     metaDescription?: string;
-  }>().default({
-    tags: [],
-  }),
-  analytics: jsonb("analytics").$type<{
+  };
+  analytics: {
     viewCount: number;
     addToCartCount: number;
     purchaseCount: number;
     revenue: number;
     conversionRate: number;
-  }>().default({
-    viewCount: 0,
-    addToCartCount: 0,
-    purchaseCount: 0,
-    revenue: 0,
-    conversionRate: 0,
-  }),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Events table
-export const events = pgTable("events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: varchar("title", { length: 255 }).notNull(),
-  description: text("description"),
-  artistId: uuid("artist_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  collaborators: jsonb("collaborators").$type<string[]>().default([]),
-  dateTime: timestamp("date_time").notNull(),
-  endDateTime: timestamp("end_date_time"),
-  timezone: varchar("timezone", { length: 50 }).default('UTC'),
-  venue: jsonb("venue").$type<{
+const productSchema = new Schema<IProduct>({
+  name: { type: String, required: true, maxlength: 255 },
+  description: String,
+  artistId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true },
+  category: { type: String, maxlength: 100 },
+  subcategory: { type: String, maxlength: 100 },
+  price: { type: Number, required: true },
+  currency: { type: String, maxlength: 3, default: 'USD' },
+  images: { type: [String], default: [] },
+  mainImage: { type: String, maxlength: 500 },
+  variants: [{
+    name: String,
+    options: [String],
+    priceModifier: { type: Number, default: 0 },
+    stock: { type: Number, default: 0 },
+    _id: false
+  }],
+  inventory: {
+    totalStock: { type: Number, default: 0 },
+    soldCount: { type: Number, default: 0 },
+    lowStockThreshold: { type: Number, default: 5 },
+    isInStock: { type: Boolean, default: true },
+    _id: false
+  },
+  shipping: {
+    dimensions: {
+      length: { type: Number, default: 0 },
+      width: { type: Number, default: 0 },
+      height: { type: Number, default: 0 },
+      _id: false
+    },
+    weight: { type: Number, default: 0 },
+    shippingRates: [{ region: String, rate: Number, _id: false }],
+    processingTime: { type: String, default: '1-3 business days' },
+    _id: false
+  },
+  seo: {
+    tags: { type: [String], default: [] },
+    metaDescription: String,
+    _id: false
+  },
+  analytics: {
+    viewCount: { type: Number, default: 0 },
+    addToCartCount: { type: Number, default: 0 },
+    purchaseCount: { type: Number, default: 0 },
+    revenue: { type: Number, default: 0 },
+    conversionRate: { type: Number, default: 0 },
+    _id: false
+  },
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+// Event Interface and Schema
+export interface IEvent extends Document {
+  _id: string;
+  title: string;
+  description?: string;
+  artistId: mongoose.Types.ObjectId;
+  collaborators: string[];
+  dateTime: Date;
+  endDateTime?: Date;
+  timezone: string;
+  venue: {
     name: string;
-    address: object;
+    address: any;
     capacity?: number;
     coordinates?: { lat: number; lng: number };
-  }>().notNull(),
-  isOnline: boolean("is_online").default(false),
-  streamUrl: varchar("stream_url", { length: 500 }),
-  ticketTypes: jsonb("ticket_types").$type<{
+  };
+  isOnline: boolean;
+  streamUrl?: string;
+  ticketTypes: {
     name: string;
     description: string;
     price: number;
@@ -383,58 +549,107 @@ export const events = pgTable("events", {
     salesStartDate?: Date;
     salesEndDate?: Date;
     perks: string[];
-  }[]>().default([]),
-  media: jsonb("media").$type<{
+  }[];
+  media: {
     bannerImage?: string;
     gallery?: string[];
     promoVideo?: string;
-  }>().default({}),
-  settings: jsonb("settings").$type<{
+  };
+  settings: {
     ageRestriction?: number;
     dresscode?: string;
     refundPolicy?: string;
     transferPolicy?: string;
-  }>().default({}),
-  analytics: jsonb("analytics").$type<{
+  };
+  analytics: {
     viewCount: number;
     interestedCount: number;
     ticketsSold: number;
     revenue: number;
     attendance?: number;
     satisfaction?: number;
-  }>().default({
-    viewCount: 0,
-    interestedCount: 0,
-    ticketsSold: 0,
-    revenue: 0,
-  }),
-  status: eventStatusEnum("status").default('draft'),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  status: typeof eventStatuses[number];
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Orders table
-export const orders = pgTable("orders", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  orderNumber: varchar("order_number", { length: 50 }).unique().notNull(),
-  buyerId: uuid("buyer_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  items: jsonb("items").$type<{
+const eventSchema = new Schema<IEvent>({
+  title: { type: String, required: true, maxlength: 255 },
+  description: String,
+  artistId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true },
+  collaborators: { type: [String], default: [] },
+  dateTime: { type: Date, required: true },
+  endDateTime: Date,
+  timezone: { type: String, default: 'UTC', maxlength: 50 },
+  venue: {
+    name: { type: String, required: true },
+    address: { type: Schema.Types.Mixed, required: true },
+    capacity: Number,
+    coordinates: { lat: Number, lng: Number, _id: false },
+    _id: false
+  },
+  isOnline: { type: Boolean, default: false },
+  streamUrl: { type: String, maxlength: 500 },
+  ticketTypes: [{
+    name: { type: String, required: true },
+    description: String,
+    price: { type: Number, required: true },
+    currency: { type: String, default: 'USD' },
+    capacity: { type: Number, required: true },
+    sold: { type: Number, default: 0 },
+    salesStartDate: Date,
+    salesEndDate: Date,
+    perks: [String],
+    _id: false
+  }],
+  media: {
+    bannerImage: String,
+    gallery: [String],
+    promoVideo: String,
+    _id: false
+  },
+  settings: {
+    ageRestriction: Number,
+    dresscode: String,
+    refundPolicy: String,
+    transferPolicy: String,
+    _id: false
+  },
+  analytics: {
+    viewCount: { type: Number, default: 0 },
+    interestedCount: { type: Number, default: 0 },
+    ticketsSold: { type: Number, default: 0 },
+    revenue: { type: Number, default: 0 },
+    attendance: Number,
+    satisfaction: Number,
+    _id: false
+  },
+  status: { type: String, enum: eventStatuses, default: 'draft' }
+}, { timestamps: true });
+
+// Order Interface and Schema
+export interface IOrder extends Document {
+  _id: string;
+  orderNumber: string;
+  buyerId: mongoose.Types.ObjectId;
+  items: {
     productId?: string;
     eventId?: string;
     variant?: string;
     quantity: number;
     price: number;
     artistId: string;
-  }[]>().notNull(),
-  totals: jsonb("totals").$type<{
+  }[];
+  totals: {
     subtotal: number;
     shipping: number;
     tax: number;
     discount: number;
     total: number;
     currency: string;
-  }>().notNull(),
-  shipping: jsonb("shipping").$type<{
+  };
+  shipping?: {
     address: {
       fullName: string;
       addressLine1: string;
@@ -449,118 +664,237 @@ export const orders = pgTable("orders", {
     trackingNumber?: string;
     carrier?: string;
     estimatedDelivery?: Date;
-  }>(),
-  payment: jsonb("payment").$type<{
+  };
+  payment: {
     razorpayOrderId?: string;
     razorpayPaymentId?: string;
     method: string;
     status: string;
     paidAt?: Date;
-  }>().notNull(),
-  status: orderStatusEnum("status").default('pending'),
-  timeline: jsonb("timeline").$type<{
+  };
+  status: typeof orderStatuses[number];
+  timeline: {
     status: string;
     timestamp: Date;
     note?: string;
-  }[]>().default([]),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  }[];
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Tickets table
-export const tickets = pgTable("tickets", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  eventId: uuid("event_id").references(() => events.id, { onDelete: 'cascade' }).notNull(),
-  buyerId: uuid("buyer_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  orderId: uuid("order_id").references(() => orders.id),
-  ticketType: varchar("ticket_type", { length: 100 }).notNull(),
-  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  currency: varchar("currency", { length: 3 }).default('USD'),
-  qrCode: varchar("qr_code", { length: 500 }),
-  ticketNumber: varchar("ticket_number", { length: 50 }).unique().notNull(),
-  seatInfo: jsonb("seat_info").$type<{
+const orderSchema = new Schema<IOrder>({
+  orderNumber: { type: String, required: true, unique: true, maxlength: 50 },
+  buyerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  items: [{
+    productId: String,
+    eventId: String,
+    variant: String,
+    quantity: { type: Number, required: true },
+    price: { type: Number, required: true },
+    artistId: { type: String, required: true },
+    _id: false
+  }],
+  totals: {
+    subtotal: { type: Number, required: true },
+    shipping: { type: Number, required: true },
+    tax: { type: Number, required: true },
+    discount: { type: Number, required: true },
+    total: { type: Number, required: true },
+    currency: { type: String, required: true },
+    _id: false
+  },
+  shipping: {
+    address: {
+      fullName: String,
+      addressLine1: String,
+      addressLine2: String,
+      city: String,
+      state: String,
+      postalCode: String,
+      country: String,
+      phone: String,
+      _id: false
+    },
+    method: String,
+    trackingNumber: String,
+    carrier: String,
+    estimatedDelivery: Date,
+    _id: false
+  },
+  payment: {
+    razorpayOrderId: String,
+    razorpayPaymentId: String,
+    method: { type: String, required: true },
+    status: { type: String, required: true },
+    paidAt: Date,
+    _id: false
+  },
+  status: { type: String, enum: orderStatuses, default: 'pending' },
+  timeline: [{
+    status: String,
+    timestamp: Date,
+    note: String,
+    _id: false
+  }]
+}, { timestamps: true });
+
+// Ticket Interface and Schema
+export interface ITicket extends Document {
+  _id: string;
+  eventId: mongoose.Types.ObjectId;
+  buyerId: mongoose.Types.ObjectId;
+  orderId?: mongoose.Types.ObjectId;
+  ticketType: string;
+  price: number;
+  currency: string;
+  qrCode?: string;
+  ticketNumber: string;
+  seatInfo: {
     section?: string;
     row?: string;
     seat?: string;
-  }>().default({}),
-  status: ticketStatusEnum("status").default('valid'),
-  usedAt: timestamp("used_at"),
-  transferredTo: uuid("transferred_to").references(() => users.id),
-  payment: jsonb("payment").$type<{
+  };
+  status: typeof ticketStatuses[number];
+  usedAt?: Date;
+  transferredTo?: mongoose.Types.ObjectId;
+  payment: {
     razorpayPaymentId?: string;
     purchaseDate: Date;
     refundId?: string;
-  }>().notNull(),
-  additionalInfo: jsonb("additional_info").default({}),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  additionalInfo: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Blogs table
-export const blogs = pgTable("blogs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: varchar("title", { length: 255 }).notNull(),
-  content: text("content").notNull(),
-  excerpt: varchar("excerpt", { length: 500 }),
-  authorId: uuid("author_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  featuredImage: varchar("featured_image", { length: 500 }),
-  gallery: jsonb("gallery").$type<string[]>().default([]),
-  embeddedMedia: jsonb("embedded_media").$type<{
+const ticketSchema = new Schema<ITicket>({
+  eventId: { type: Schema.Types.ObjectId, ref: 'Event', required: true },
+  buyerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+  ticketType: { type: String, required: true, maxlength: 100 },
+  price: { type: Number, required: true },
+  currency: { type: String, default: 'USD', maxlength: 3 },
+  qrCode: { type: String, maxlength: 500 },
+  ticketNumber: { type: String, required: true, unique: true, maxlength: 50 },
+  seatInfo: {
+    section: String,
+    row: String,
+    seat: String,
+    _id: false
+  },
+  status: { type: String, enum: ticketStatuses, default: 'valid' },
+  usedAt: Date,
+  transferredTo: { type: Schema.Types.ObjectId, ref: 'User' },
+  payment: {
+    razorpayPaymentId: String,
+    purchaseDate: { type: Date, required: true },
+    refundId: String,
+    _id: false
+  },
+  additionalInfo: { type: Schema.Types.Mixed, default: {} }
+}, { timestamps: true });
+
+// Blog Interface and Schema
+export interface IBlog extends Document {
+  _id: string;
+  title: string;
+  content: string;
+  excerpt?: string;
+  authorId: mongoose.Types.ObjectId;
+  featuredImage?: string;
+  gallery: string[];
+  embeddedMedia: {
     type: string;
     url: string;
-    metadata?: object;
-  }[]>().default([]),
-  tags: jsonb("tags").$type<string[]>().default([]),
-  category: varchar("category", { length: 100 }),
-  visibility: visibilityEnum("visibility").default('public'),
-  seo: jsonb("seo").$type<{
+    metadata?: any;
+  }[];
+  tags: string[];
+  category?: string;
+  visibility: typeof visibilityTypes[number];
+  seo: {
     metaTitle?: string;
     metaDescription?: string;
     slug: string;
-  }>().notNull(),
-  engagement: jsonb("engagement").$type<{
+  };
+  engagement: {
     viewCount: number;
     likeCount: number;
     commentCount: number;
     shareCount: number;
     readTime: number;
-  }>().default({
-    viewCount: 0,
-    likeCount: 0,
-    commentCount: 0,
-    shareCount: 0,
-    readTime: 0,
-  }),
-  status: contentStatusEnum("status").default('draft'),
-  publishedAt: timestamp("published_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  status: typeof contentStatuses[number];
+  publishedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Blog comments table
-export const blogComments = pgTable("blog_comments", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  blogId: uuid("blog_id").references(() => blogs.id, { onDelete: 'cascade' }).notNull(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  content: text("content").notNull(),
-  parentId: uuid("parent_id").references(() => blogComments.id),
-  likes: integer("likes").default(0),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+const blogSchema = new Schema<IBlog>({
+  title: { type: String, required: true, maxlength: 255 },
+  content: { type: String, required: true },
+  excerpt: { type: String, maxlength: 500 },
+  authorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  featuredImage: { type: String, maxlength: 500 },
+  gallery: { type: [String], default: [] },
+  embeddedMedia: [{
+    type: String,
+    url: String,
+    metadata: Schema.Types.Mixed,
+    _id: false
+  }],
+  tags: { type: [String], default: [] },
+  category: { type: String, maxlength: 100 },
+  visibility: { type: String, enum: visibilityTypes, default: 'public' },
+  seo: {
+    metaTitle: String,
+    metaDescription: String,
+    slug: { type: String, required: true },
+    _id: false
+  },
+  engagement: {
+    viewCount: { type: Number, default: 0 },
+    likeCount: { type: Number, default: 0 },
+    commentCount: { type: Number, default: 0 },
+    shareCount: { type: Number, default: 0 },
+    readTime: { type: Number, default: 0 },
+    _id: false
+  },
+  status: { type: String, enum: contentStatuses, default: 'draft' },
+  publishedAt: Date
+}, { timestamps: true });
 
-// Ads table
-export const ads = pgTable("ads", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  campaign: jsonb("campaign").$type<{
+// Blog Comment Interface and Schema
+export interface IBlogComment extends Document {
+  _id: string;
+  blogId: mongoose.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
+  content: string;
+  parentId?: mongoose.Types.ObjectId;
+  likes: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const blogCommentSchema = new Schema<IBlogComment>({
+  blogId: { type: Schema.Types.ObjectId, ref: 'Blog', required: true },
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  content: { type: String, required: true },
+  parentId: { type: Schema.Types.ObjectId, ref: 'BlogComment' },
+  likes: { type: Number, default: 0 }
+}, { timestamps: true });
+
+// Ad Interface and Schema
+export interface IAd extends Document {
+  _id: string;
+  campaign: {
     name: string;
     advertiser: string;
     contactEmail: string;
     budget: number;
     dailyBudget?: number;
     currency: string;
-  }>().notNull(),
-  creative: jsonb("creative").$type<{
+  };
+  creative: {
     type: 'audio' | 'banner' | 'video';
     audioFile?: string;
     bannerImage?: string;
@@ -568,8 +902,8 @@ export const ads = pgTable("ads", {
     duration?: number;
     clickUrl?: string;
     callToAction?: string;
-  }>().notNull(),
-  targeting: jsonb("targeting").$type<{
+  };
+  targeting: {
     demographics: {
       ageRange?: { min: number; max: number };
       gender?: string[];
@@ -584,11 +918,11 @@ export const ads = pgTable("ads", {
     schedule: {
       startDate: Date;
       endDate: Date;
-      dayParting?: object;
+      dayParting?: any;
       timezone: string;
     };
-  }>().notNull(),
-  performance: jsonb("performance").$type<{
+  };
+  performance: {
     impressions: number;
     clicks: number;
     conversions: number;
@@ -596,415 +930,599 @@ export const ads = pgTable("ads", {
     ctr: number;
     cpm: number;
     completionRate: number;
-  }>().default({
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    spend: 0,
-    ctr: 0,
-    cpm: 0,
-    completionRate: 0,
-  }),
-  status: adStatusEnum("status").default('draft'),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
+  };
+  status: typeof adStatuses[number];
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-// Analytics table
-export const analytics = pgTable("analytics", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id),
-  sessionId: varchar("session_id", { length: 255 }),
-  eventType: varchar("event_type", { length: 100 }).notNull(),
-  eventData: jsonb("event_data").$type<{
+const adSchema = new Schema<IAd>({
+  campaign: {
+    name: { type: String, required: true },
+    advertiser: { type: String, required: true },
+    contactEmail: { type: String, required: true },
+    budget: { type: Number, required: true },
+    dailyBudget: Number,
+    currency: { type: String, required: true },
+    _id: false
+  },
+  creative: {
+    type: { type: String, enum: ['audio', 'banner', 'video'], required: true },
+    audioFile: String,
+    bannerImage: String,
+    videoFile: String,
+    duration: Number,
+    clickUrl: String,
+    callToAction: String,
+    _id: false
+  },
+  targeting: {
+    demographics: {
+      ageRange: { min: Number, max: Number, _id: false },
+      gender: [String],
+      locations: [String],
+      languages: [String],
+      _id: false
+    },
+    interests: {
+      genres: [String],
+      artistTypes: [String],
+      behaviors: [String],
+      _id: false
+    },
+    schedule: {
+      startDate: { type: Date, required: true },
+      endDate: { type: Date, required: true },
+      dayParting: Schema.Types.Mixed,
+      timezone: { type: String, required: true },
+      _id: false
+    },
+    _id: false
+  },
+  performance: {
+    impressions: { type: Number, default: 0 },
+    clicks: { type: Number, default: 0 },
+    conversions: { type: Number, default: 0 },
+    spend: { type: Number, default: 0 },
+    ctr: { type: Number, default: 0 },
+    cpm: { type: Number, default: 0 },
+    completionRate: { type: Number, default: 0 },
+    _id: false
+  },
+  status: { type: String, enum: adStatuses, default: 'draft' }
+}, { timestamps: true });
+
+// Analytics Interface and Schema
+export interface IAnalytics extends Document {
+  _id: string;
+  userId?: mongoose.Types.ObjectId;
+  sessionId?: string;
+  eventType: string;
+  eventData: {
     action: string;
     category: string;
     label?: string;
     value?: number;
-    metadata?: object;
-  }>().notNull(),
-  context: jsonb("context").$type<{
+    metadata?: any;
+  };
+  context: {
     page: string;
     userAgent?: string;
     deviceType?: string;
-    location?: object;
+    location?: any;
     referrer?: string;
-  }>().notNull(),
-  timestamp: timestamp("timestamp").defaultNow(),
+  };
+  timestamp: Date;
+}
+
+const analyticsSchema = new Schema<IAnalytics>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User' },
+  sessionId: { type: String, maxlength: 255 },
+  eventType: { type: String, required: true, maxlength: 100 },
+  eventData: {
+    action: { type: String, required: true },
+    category: { type: String, required: true },
+    label: String,
+    value: Number,
+    metadata: Schema.Types.Mixed,
+    _id: false
+  },
+  context: {
+    page: { type: String, required: true },
+    userAgent: String,
+    deviceType: String,
+    location: Schema.Types.Mixed,
+    referrer: String,
+    _id: false
+  },
+  timestamp: { type: Date, default: Date.now }
 });
 
-// Notifications table
-export const notifications = pgTable("notifications", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  recipientId: uuid("recipient_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  type: varchar("type", { length: 100 }).notNull(),
-  title: varchar("title", { length: 255 }).notNull(),
-  message: text("message").notNull(),
-  data: jsonb("data").default({}),
-  isRead: boolean("is_read").default(false),
-  readAt: timestamp("read_at"),
-  actionUrl: varchar("action_url", { length: 500 }),
-  priority: varchar("priority", { length: 20 }).default('medium'), // low, medium, high
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// Notification Interface and Schema
+export interface INotification extends Document {
+  _id: string;
+  recipientId: mongoose.Types.ObjectId;
+  type: string;
+  title: string;
+  message: string;
+  data: any;
+  isRead: boolean;
+  readAt?: Date;
+  actionUrl?: string;
+  priority: string;
+  createdAt: Date;
+}
 
-// Reports table
-export const reports = pgTable("reports", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  reporterId: uuid("reporter_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  contentType: varchar("content_type", { length: 50 }).notNull(), // song, blog, comment, user, event
-  contentId: uuid("content_id").notNull(),
-  reason: varchar("reason", { length: 255 }).notNull(),
-  description: text("description"),
-  status: reportStatusEnum("status").default('pending'),
-  moderatorId: uuid("moderator_id").references(() => users.id),
-  moderatorNotes: text("moderator_notes"),
-  action: varchar("action", { length: 100 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  resolvedAt: timestamp("resolved_at"),
-});
+const notificationSchema = new Schema<INotification>({
+  recipientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, required: true, maxlength: 100 },
+  title: { type: String, required: true, maxlength: 255 },
+  message: { type: String, required: true },
+  data: { type: Schema.Types.Mixed, default: {} },
+  isRead: { type: Boolean, default: false },
+  readAt: Date,
+  actionUrl: { type: String, maxlength: 500 },
+  priority: { type: String, default: 'medium', maxlength: 20 }
+}, { timestamps: { createdAt: true, updatedAt: false } });
 
-// Follows table (user follows artist)
-export const follows = pgTable("follows", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  followerId: uuid("follower_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  followingId: uuid("following_id").references(() => artists.id, { onDelete: 'cascade' }).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// Report Interface and Schema
+export interface IReport extends Document {
+  _id: string;
+  reporterId: mongoose.Types.ObjectId;
+  contentType: string;
+  contentId: string;
+  reason: string;
+  description?: string;
+  status: typeof reportStatuses[number];
+  moderatorId?: mongoose.Types.ObjectId;
+  moderatorNotes?: string;
+  action?: string;
+  createdAt: Date;
+  resolvedAt?: Date;
+}
 
-// Likes table (user likes song)
-export const likes = pgTable("likes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  songId: uuid("song_id").references(() => songs.id, { onDelete: 'cascade' }).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+const reportSchema = new Schema<IReport>({
+  reporterId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  contentType: { type: String, required: true, maxlength: 50 },
+  contentId: { type: String, required: true },
+  reason: { type: String, required: true, maxlength: 255 },
+  description: String,
+  status: { type: String, enum: reportStatuses, default: 'pending' },
+  moderatorId: { type: Schema.Types.ObjectId, ref: 'User' },
+  moderatorNotes: String,
+  action: { type: String, maxlength: 100 },
+  resolvedAt: Date
+}, { timestamps: { createdAt: true, updatedAt: false } });
 
-// Relations
-export const usersRelations = relations(users, ({ one, many }) => ({
-  artist: one(artists, {
-    fields: [users.id],
-    references: [artists.userId],
+// Follow Interface and Schema
+export interface IFollow extends Document {
+  _id: string;
+  followerId: mongoose.Types.ObjectId;
+  followingId: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const followSchema = new Schema<IFollow>({
+  followerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  followingId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true }
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+// Like Interface and Schema
+export interface ILike extends Document {
+  _id: string;
+  userId: mongoose.Types.ObjectId;
+  songId: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const likeSchema = new Schema<ILike>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  songId: { type: Schema.Types.ObjectId, ref: 'Song', required: true }
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+// Create Models
+export const User = mongoose.model<IUser>('User', userSchema);
+export const Artist = mongoose.model<IArtist>('Artist', artistSchema);
+export const Album = mongoose.model<IAlbum>('Album', albumSchema);
+export const Song = mongoose.model<ISong>('Song', songSchema);
+export const Playlist = mongoose.model<IPlaylist>('Playlist', playlistSchema);
+export const Subscription = mongoose.model<ISubscription>('Subscription', subscriptionSchema);
+export const Product = mongoose.model<IProduct>('Product', productSchema);
+export const Event = mongoose.model<IEvent>('Event', eventSchema);
+export const Order = mongoose.model<IOrder>('Order', orderSchema);
+export const Ticket = mongoose.model<ITicket>('Ticket', ticketSchema);
+export const Blog = mongoose.model<IBlog>('Blog', blogSchema);
+export const BlogComment = mongoose.model<IBlogComment>('BlogComment', blogCommentSchema);
+export const Ad = mongoose.model<IAd>('Ad', adSchema);
+export const Analytics = mongoose.model<IAnalytics>('Analytics', analyticsSchema);
+export const Notification = mongoose.model<INotification>('Notification', notificationSchema);
+export const Report = mongoose.model<IReport>('Report', reportSchema);
+export const Follow = mongoose.model<IFollow>('Follow', followSchema);
+export const Like = mongoose.model<ILike>('Like', likeSchema);
+
+// Zod validation schemas
+export const insertUserSchema = z.object({
+  email: z.string().email().max(255),
+  passwordHash: z.string().max(255).optional(),
+  googleId: z.string().max(255).optional(),
+  role: z.enum(userRoles).default('fan'),
+  name: z.string().max(255),
+  avatar: z.string().max(500).optional(),
+  bio: z.string().optional(),
+  location: z.string().max(255).optional(),
+  dateOfBirth: z.date().optional(),
+  genres: z.array(z.string()).default([]),
+  socialLinks: z.object({
+    instagram: z.string().optional(),
+    twitter: z.string().optional(),
+    youtube: z.string().optional(),
+    spotify: z.string().optional(),
+    website: z.string().optional(),
+  }).default({}),
+  settings: z.object({
+    emailNotifications: z.boolean().default(true),
+    pushNotifications: z.boolean().default(true),
+    privacy: z.object({
+      showListeningActivity: z.boolean().default(true),
+      showPlaylists: z.boolean().default(true),
+      allowMessages: z.boolean().default(true),
+    }),
+    adPreferences: z.object({
+      personalizedAds: z.boolean().default(true),
+      frequency: z.string().default('normal'),
+    }),
   }),
-  playlists: many(playlists),
-  subscriptions: many(subscriptions),
-  orders: many(orders),
-  tickets: many(tickets),
-  blogs: many(blogs),
-  blogComments: many(blogComments),
-  notifications: many(notifications),
-  reports: many(reports),
-  follows: many(follows),
-  likes: many(likes),
-}));
-
-export const artistsRelations = relations(artists, ({ one, many }) => ({
-  user: one(users, {
-    fields: [artists.userId],
-    references: [users.id],
+  subscription: z.object({
+    isPremium: z.boolean().default(false),
+    plan: z.string().optional(),
+    startDate: z.date().optional(),
+    endDate: z.date().optional(),
+    autoRenew: z.boolean().default(false),
   }),
-  albums: many(albums),
-  songs: many(songs),
-  products: many(products),
-  events: many(events),
-  subscriptions: many(subscriptions),
-  follows: many(follows),
-}));
-
-export const albumsRelations = relations(albums, ({ one, many }) => ({
-  artist: one(artists, {
-    fields: [albums.artistId],
-    references: [artists.id],
+  analytics: z.object({
+    totalPlays: z.number().default(0),
+    totalFollowers: z.number().default(0),
+    deviceInfo: z.any().optional(),
   }),
-  songs: many(songs),
-}));
+}).partial();
 
-export const songsRelations = relations(songs, ({ one }) => ({
-  artist: one(artists, {
-    fields: [songs.artistId],
-    references: [artists.id],
+// Zod validation schemas for inserts
+export const insertSongSchema = z.object({
+  title: z.string().min(1).max(255),
+  artistId: z.string(),
+  albumId: z.string().optional(),
+  collaborators: z.array(z.string()).default([]),
+  genre: z.string().max(100).optional(),
+  subGenres: z.array(z.string()).default([]),
+  duration: z.number(),
+  releaseDate: z.date().default(() => new Date()),
+  files: z.object({
+    audioUrl: z.string(),
+    audioFileId: z.string(),
+    artworkUrl: z.string().optional(),
+    artworkFileId: z.string().optional(),
+    waveformData: z.array(z.number()).optional(),
   }),
-  album: one(albums, {
-    fields: [songs.albumId],
-    references: [albums.id],
+  metadata: z.object({
+    bpm: z.number().optional(),
+    key: z.string().optional(),
+    mood: z.string().optional(),
+    energy: z.number().optional(),
+    danceability: z.number().optional(),
+    tags: z.array(z.string()).optional(),
+    lyrics: z.string().optional(),
+    credits: z.array(z.object({
+      role: z.string(),
+      name: z.string(),
+    })).optional(),
+  }).optional(),
+  visibility: z.enum(visibilityTypes).default('public'),
+  monetization: z.object({
+    isMonetized: z.boolean().default(false),
+    adEnabled: z.boolean().default(true),
+    price: z.number().optional(),
+    royaltySplit: z.array(z.object({
+      collaborator: z.string(),
+      percentage: z.number(),
+    })).optional(),
+  }).optional(),
+}).partial();
+
+export const insertAlbumSchema = z.object({
+  title: z.string().min(1).max(255),
+  artistId: z.string(),
+  description: z.string().optional(),
+  releaseDate: z.date().optional(),
+  type: z.string().max(50).default('album'),
+  artwork: z.string().max(500).optional(),
+  genres: z.array(z.string()).default([]),
+  totalDuration: z.number().default(0),
+  price: z.number().optional(),
+  isPublic: z.boolean().default(true),
+}).partial();
+
+export const insertPlaylistSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  ownerId: z.string(),
+  songs: z.array(z.string()).default([]),
+  coverArt: z.string().max(500).optional(),
+  isPublic: z.boolean().default(false),
+  isCollaborative: z.boolean().default(false),
+  collaborators: z.array(z.string()).default([]),
+}).partial();
+
+export const insertProductSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  artistId: z.string(),
+  category: z.string().max(100).optional(),
+  subcategory: z.string().max(100).optional(),
+  price: z.number(),
+  currency: z.string().max(3).default('USD'),
+  images: z.array(z.string()).default([]),
+  mainImage: z.string().max(500).optional(),
+  variants: z.array(z.object({
+    name: z.string(),
+    options: z.array(z.string()),
+    priceModifier: z.number().default(0),
+    stock: z.number().default(0),
+  })).default([]),
+  inventory: z.object({
+    totalStock: z.number().default(0),
+    soldCount: z.number().default(0),
+    lowStockThreshold: z.number().default(5),
+    isInStock: z.boolean().default(true),
+  }).optional(),
+  shipping: z.object({
+    dimensions: z.object({
+      length: z.number().default(0),
+      width: z.number().default(0),
+      height: z.number().default(0),
+    }),
+    weight: z.number().default(0),
+    shippingRates: z.array(z.object({
+      region: z.string(),
+      rate: z.number(),
+    })).default([]),
+    processingTime: z.string().default('1-3 business days'),
+  }).optional(),
+  seo: z.object({
+    tags: z.array(z.string()).default([]),
+    metaDescription: z.string().optional(),
+  }).optional(),
+  isActive: z.boolean().default(true),
+}).partial();
+
+export const insertEventSchema = z.object({
+  title: z.string().min(1).max(255),
+  description: z.string().optional(),
+  artistId: z.string(),
+  collaborators: z.array(z.string()).default([]),
+  dateTime: z.date(),
+  endDateTime: z.date().optional(),
+  timezone: z.string().max(50).default('UTC'),
+  venue: z.object({
+    name: z.string(),
+    address: z.any(),
+    capacity: z.number().optional(),
+    coordinates: z.object({
+      lat: z.number(),
+      lng: z.number(),
+    }).optional(),
   }),
-}));
+  isOnline: z.boolean().default(false),
+  streamUrl: z.string().max(500).optional(),
+  ticketTypes: z.array(z.object({
+    name: z.string(),
+    description: z.string().optional(),
+    price: z.number(),
+    currency: z.string().default('USD'),
+    capacity: z.number(),
+    sold: z.number().default(0),
+    salesStartDate: z.date().optional(),
+    salesEndDate: z.date().optional(),
+    perks: z.array(z.string()).default([]),
+  })).default([]),
+  media: z.object({
+    bannerImage: z.string().optional(),
+    gallery: z.array(z.string()).default([]),
+    promoVideo: z.string().optional(),
+  }).optional(),
+  settings: z.object({
+    ageRestriction: z.number().optional(),
+    dresscode: z.string().optional(),
+    refundPolicy: z.string().optional(),
+    transferPolicy: z.string().optional(),
+  }).optional(),
+  status: z.enum(eventStatuses).default('draft'),
+}).partial();
 
-export const playlistsRelations = relations(playlists, ({ one }) => ({
-  owner: one(users, {
-    fields: [playlists.ownerId],
-    references: [users.id],
+export const insertOrderSchema = z.object({
+  orderNumber: z.string().max(50),
+  buyerId: z.string(),
+  items: z.array(z.object({
+    productId: z.string().optional(),
+    eventId: z.string().optional(),
+    variant: z.string().optional(),
+    quantity: z.number(),
+    price: z.number(),
+    artistId: z.string(),
+  })),
+  totals: z.object({
+    subtotal: z.number(),
+    shipping: z.number(),
+    tax: z.number(),
+    discount: z.number(),
+    total: z.number(),
+    currency: z.string(),
   }),
-}));
-
-export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
-  fan: one(users, {
-    fields: [subscriptions.fanId],
-    references: [users.id],
+  shipping: z.object({
+    address: z.object({
+      fullName: z.string(),
+      addressLine1: z.string(),
+      addressLine2: z.string().optional(),
+      city: z.string(),
+      state: z.string(),
+      postalCode: z.string(),
+      country: z.string(),
+      phone: z.string().optional(),
+    }),
+    method: z.string(),
+    trackingNumber: z.string().optional(),
+    carrier: z.string().optional(),
+    estimatedDelivery: z.date().optional(),
+  }).optional(),
+  payment: z.object({
+    razorpayOrderId: z.string().optional(),
+    razorpayPaymentId: z.string().optional(),
+    method: z.string(),
+    status: z.string(),
+    paidAt: z.date().optional(),
   }),
-  artist: one(artists, {
-    fields: [subscriptions.artistId],
-    references: [artists.id],
+  status: z.enum(orderStatuses).default('pending'),
+  timeline: z.array(z.object({
+    status: z.string(),
+    timestamp: z.date(),
+    note: z.string().optional(),
+  })).default([]),
+}).partial();
+
+export const insertSubscriptionSchema = z.object({
+  fanId: z.string(),
+  artistId: z.string(),
+  tier: z.object({
+    name: z.string(),
+    price: z.number(),
+    currency: z.string(),
+    interval: z.string(),
+    perks: z.array(z.string()),
   }),
-}));
+  status: z.enum(subscriptionStatuses).default('active'),
+  startDate: z.date().default(() => new Date()),
+  endDate: z.date().optional(),
+  nextBillDate: z.date().optional(),
+  payment: z.object({
+    razorpaySubscriptionId: z.string().optional(),
+    razorpayCustomerId: z.string().optional(),
+    paymentMethod: z.any().optional(),
+  }).optional(),
+}).partial();
 
-export const productsRelations = relations(products, ({ one, many }) => ({
-  artist: one(artists, {
-    fields: [products.artistId],
-    references: [artists.id],
+export const insertBlogSchema = z.object({
+  title: z.string().min(1).max(255),
+  content: z.string(),
+  excerpt: z.string().max(500).optional(),
+  authorId: z.string(),
+  featuredImage: z.string().max(500).optional(),
+  gallery: z.array(z.string()).default([]),
+  embeddedMedia: z.array(z.object({
+    type: z.string(),
+    url: z.string(),
+    metadata: z.any().optional(),
+  })).default([]),
+  tags: z.array(z.string()).default([]),
+  category: z.string().max(100).optional(),
+  visibility: z.enum(visibilityTypes).default('public'),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+    slug: z.string(),
   }),
-}));
+  status: z.enum(contentStatuses).default('draft'),
+  publishedAt: z.date().optional(),
+}).partial();
 
-export const eventsRelations = relations(events, ({ one, many }) => ({
-  artist: one(artists, {
-    fields: [events.artistId],
-    references: [artists.id],
+export const insertReportSchema = z.object({
+  reporterId: z.string(),
+  contentType: z.string().max(50),
+  contentId: z.string(),
+  reason: z.string().max(255),
+  description: z.string().optional(),
+  status: z.enum(reportStatuses).default('pending'),
+  moderatorId: z.string().optional(),
+  moderatorNotes: z.string().optional(),
+  action: z.string().max(100).optional(),
+  resolvedAt: z.date().optional(),
+}).partial();
+
+export const insertAdSchema = z.object({
+  campaign: z.object({
+    name: z.string(),
+    advertiser: z.string(),
+    contactEmail: z.string(),
+    budget: z.number(),
+    dailyBudget: z.number().optional(),
+    currency: z.string(),
   }),
-  tickets: many(tickets),
-}));
-
-export const ordersRelations = relations(orders, ({ one, many }) => ({
-  buyer: one(users, {
-    fields: [orders.buyerId],
-    references: [users.id],
+  creative: z.object({
+    type: z.enum(['audio', 'banner', 'video']),
+    audioFile: z.string().optional(),
+    bannerImage: z.string().optional(),
+    videoFile: z.string().optional(),
+    duration: z.number().optional(),
+    clickUrl: z.string().optional(),
+    callToAction: z.string().optional(),
   }),
-  tickets: many(tickets),
-}));
-
-export const ticketsRelations = relations(tickets, ({ one }) => ({
-  event: one(events, {
-    fields: [tickets.eventId],
-    references: [events.id],
+  targeting: z.object({
+    demographics: z.object({
+      ageRange: z.object({ min: z.number(), max: z.number() }).optional(),
+      gender: z.array(z.string()).optional(),
+      locations: z.array(z.string()).optional(),
+      languages: z.array(z.string()).optional(),
+    }).optional(),
+    interests: z.object({
+      genres: z.array(z.string()).optional(),
+      artistTypes: z.array(z.string()).optional(),
+      behaviors: z.array(z.string()).optional(),
+    }).optional(),
+    schedule: z.object({
+      startDate: z.date(),
+      endDate: z.date(),
+      dayParting: z.any().optional(),
+      timezone: z.string(),
+    }),
   }),
-  buyer: one(users, {
-    fields: [tickets.buyerId],
-    references: [users.id],
-  }),
-  order: one(orders, {
-    fields: [tickets.orderId],
-    references: [orders.id],
-  }),
-}));
+  status: z.enum(adStatuses).default('draft'),
+}).partial();
 
-export const blogsRelations = relations(blogs, ({ one, many }) => ({
-  author: one(users, {
-    fields: [blogs.authorId],
-    references: [users.id],
-  }),
-  comments: many(blogComments),
-}));
-
-export const blogCommentsRelations = relations(blogComments, ({ one, many }) => ({
-  blog: one(blogs, {
-    fields: [blogComments.blogId],
-    references: [blogs.id],
-  }),
-  user: one(users, {
-    fields: [blogComments.userId],
-    references: [users.id],
-  }),
-  parent: one(blogComments, {
-    fields: [blogComments.parentId],
-    references: [blogComments.id],
-  }),
-  replies: many(blogComments),
-}));
-
-export const notificationsRelations = relations(notifications, ({ one }) => ({
-  recipient: one(users, {
-    fields: [notifications.recipientId],
-    references: [users.id],
-  }),
-}));
-
-export const reportsRelations = relations(reports, ({ one }) => ({
-  reporter: one(users, {
-    fields: [reports.reporterId],
-    references: [users.id],
-  }),
-  moderator: one(users, {
-    fields: [reports.moderatorId],
-    references: [users.id],
-  }),
-}));
-
-export const followsRelations = relations(follows, ({ one }) => ({
-  follower: one(users, {
-    fields: [follows.followerId],
-    references: [users.id],
-  }),
-  following: one(artists, {
-    fields: [follows.followingId],
-    references: [artists.id],
-  }),
-}));
-
-export const likesRelations = relations(likes, ({ one }) => ({
-  user: one(users, {
-    fields: [likes.userId],
-    references: [users.id],
-  }),
-  song: one(songs, {
-    fields: [likes.songId],
-    references: [songs.id],
-  }),
-}));
-
-// Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-  lastActive: true,
-});
-
-export const insertArtistSchema = createInsertSchema(artists).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertSongSchema = createInsertSchema(songs).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertAlbumSchema = createInsertSchema(albums).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertPlaylistSchema = createInsertSchema(playlists).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertProductSchema = createInsertSchema(products).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertEventSchema = createInsertSchema(events).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertOrderSchema = createInsertSchema(orders).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertTicketSchema = createInsertSchema(tickets).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertBlogSchema = createInsertSchema(blogs).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertBlogCommentSchema = createInsertSchema(blogComments).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertAdSchema = createInsertSchema(ads).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertAnalyticsSchema = createInsertSchema(analytics).omit({
-  id: true,
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertReportSchema = createInsertSchema(reports).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertFollowSchema = createInsertSchema(follows).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertLikeSchema = createInsertSchema(likes).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Types
-export type User = typeof users.$inferSelect;
+// Export types using the interfaces
+export type User = IUser;
 export type InsertUser = z.infer<typeof insertUserSchema>;
-
-export type Artist = typeof artists.$inferSelect;
-export type InsertArtist = z.infer<typeof insertArtistSchema>;
-
-export type Song = typeof songs.$inferSelect;
+export type Artist = IArtist;
+export type InsertArtist = Partial<Omit<IArtist, '_id' | 'createdAt' | 'updatedAt'>>;
+export type Song = ISong;
 export type InsertSong = z.infer<typeof insertSongSchema>;
-
-export type Album = typeof albums.$inferSelect;
+export type Album = IAlbum;
 export type InsertAlbum = z.infer<typeof insertAlbumSchema>;
-
-export type Playlist = typeof playlists.$inferSelect;
+export type Playlist = IPlaylist;
 export type InsertPlaylist = z.infer<typeof insertPlaylistSchema>;
-
-export type Subscription = typeof subscriptions.$inferSelect;
+export type Subscription = ISubscription;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
-
-export type Product = typeof products.$inferSelect;
+export type Product = IProduct;
 export type InsertProduct = z.infer<typeof insertProductSchema>;
-
-export type Event = typeof events.$inferSelect;
+export type Event = IEvent;
 export type InsertEvent = z.infer<typeof insertEventSchema>;
-
-export type Order = typeof orders.$inferSelect;
+export type Order = IOrder;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
-
-export type Ticket = typeof tickets.$inferSelect;
-export type InsertTicket = z.infer<typeof insertTicketSchema>;
-
-export type Blog = typeof blogs.$inferSelect;
+export type Ticket = ITicket;
+export type InsertTicket = Partial<Omit<ITicket, '_id' | 'createdAt' | 'updatedAt'>>;
+export type Blog = IBlog;
 export type InsertBlog = z.infer<typeof insertBlogSchema>;
-
-export type BlogComment = typeof blogComments.$inferSelect;
-export type InsertBlogComment = z.infer<typeof insertBlogCommentSchema>;
-
-export type Ad = typeof ads.$inferSelect;
+export type BlogComment = IBlogComment;
+export type InsertBlogComment = Partial<Omit<IBlogComment, '_id' | 'createdAt' | 'updatedAt'>>;
+export type Ad = IAd;
 export type InsertAd = z.infer<typeof insertAdSchema>;
-
-export type Analytics = typeof analytics.$inferSelect;
-export type InsertAnalytics = z.infer<typeof insertAnalyticsSchema>;
-
-export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = z.infer<typeof insertNotificationSchema>;
-
-export type Report = typeof reports.$inferSelect;
+export type Analytics = IAnalytics;
+export type InsertAnalytics = Partial<Omit<IAnalytics, '_id'>>;
+export type Notification = INotification;
+export type InsertNotification = Partial<Omit<INotification, '_id' | 'createdAt'>>;
+export type Report = IReport;
 export type InsertReport = z.infer<typeof insertReportSchema>;
+export type Follow = IFollow;
+export type InsertFollow = Partial<Omit<IFollow, '_id' | 'createdAt'>>;
+export type Like = ILike;
+export type InsertLike = Partial<Omit<ILike, '_id' | 'createdAt'>>;
 
-export type Follow = typeof follows.$inferSelect;
-export type InsertFollow = z.infer<typeof insertFollowSchema>;
-
-export type Like = typeof likes.$inferSelect;
-export type InsertLike = z.infer<typeof insertLikeSchema>;
+// Export default mongoose connection
+export default mongoose;
