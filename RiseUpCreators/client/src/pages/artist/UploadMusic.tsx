@@ -1,804 +1,353 @@
-
-import { useState, useRef } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/useAuth";
-import { apiRequest } from "@/lib/api";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Upload, Music, Image, FileAudio, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { AudioVisualizer } from "@/components/ui/audio-visualizer";
-import { toast } from "@/hooks/use-toast";
-import {
-  Upload,
-  Music,
-  Image as ImageIcon,
-  X,
-  Play,
-  Pause,
-  Volume2,
-  DollarSign,
-  Users,
-  Globe,
-  Lock,
-  Eye,
-  Calendar,
-  Tag,
-} from "lucide-react";
-import type { Song } from "@shared/schema";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 
-interface SongFormData {
-  title: string;
-  genre: string;
-  subGenres: string[];
-  description: string;
-  visibility: 'public' | 'subscriber_only' | 'private';
-  monetization: {
-    isMonetized: boolean;
-    adEnabled: boolean;
-    price?: number;
-  };
-  metadata: {
-    bpm?: number;
-    key?: string;
-    mood?: string;
-    energy?: number;
-    danceability?: number;
-    tags: string[];
-    lyrics?: string;
-  };
-  releaseDate: string;
-}
+// ------------------------ Validation ------------------------
+const uploadSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  genre: z.string().optional(),
+  description: z.string().optional(),
+  releaseDate: z.string().optional(),
+  visibility: z.enum(["public", "subscriber_only", "private"]),
+  isMonetized: z.boolean(),
+  adEnabled: z.boolean(),
+  price: z.number().min(0).optional(),
+});
 
-const genres = [
-  'Pop', 'Rock', 'Hip Hop', 'Electronic', 'Jazz', 'Classical', 'Country', 
-  'R&B', 'Reggae', 'Blues', 'Folk', 'Punk', 'Metal', 'Alternative', 'Indie'
-];
+type UploadForm = z.infer<typeof uploadSchema>;
 
-const moods = ['Happy', 'Sad', 'Energetic', 'Calm', 'Romantic', 'Aggressive', 'Melancholic', 'Uplifting'];
-const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
+// ------------------------ Component ------------------------
 export default function UploadMusic() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const [step, setStep] = useState(1);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [artworkFile, setArtworkFile] = useState<File | null>(null);
-  const [audioPreview, setAudioPreview] = useState<string | null>(null);
-  const [artworkPreview, setArtworkPreview] = useState<string | null>(null);
-  const [audioDuration, setAudioDuration] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [tagInput, setTagInput] = useState('');
+  const [activeTab, setActiveTab] = useState("single");
+  const { toast } = useToast();
 
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  const [formData, setFormData] = useState<SongFormData>({
-    title: '',
-    genre: '',
-    subGenres: [],
-    description: '',
-    visibility: 'public',
-    monetization: {
-      isMonetized: false,
+  const form = useForm<UploadForm>({
+    resolver: zodResolver(uploadSchema),
+    defaultValues: {
+      visibility: "public",
+      isMonetized: true,
       adEnabled: true,
     },
-    metadata: {
-      tags: [],
-    },
-    releaseDate: new Date().toISOString().split('T')[0],
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: async (data: FormData) => {
-      setIsUploading(true);
-      setUploadProgress(0);
-
-      const response = await fetch('/api/songs/upload', {
-        method: 'POST',
-        body: data,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Success!",
-        description: "Your music has been uploaded successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/artists/my-music"] });
-      resetForm();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Upload failed",
-        description: error.message || "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      setIsUploading(false);
-      setUploadProgress(0);
-    },
-  });
-
-  const resetForm = () => {
-    setStep(1);
-    setAudioFile(null);
-    setArtworkFile(null);
-    setAudioPreview(null);
-    setArtworkPreview(null);
-    setFormData({
-      title: '',
-      genre: '',
-      subGenres: [],
-      description: '',
-      visibility: 'public',
-      monetization: {
-        isMonetized: false,
-        adEnabled: true,
-      },
-      metadata: {
-        tags: [],
-      },
-      releaseDate: new Date().toISOString().split('T')[0],
-    });
-  };
-
+  // ------------------------ Handlers ------------------------
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!file.type.startsWith('audio/')) {
-      toast({
-        title: "Invalid file type",
-        description: "Please select an audio file.",
-        variant: "destructive",
-      });
+    if (!file.type.startsWith("audio/")) {
+      toast({ title: "Invalid file", description: "Select an audio file", variant: "destructive" });
       return;
     }
-
-    if (file.size > 50 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Audio file must be less than 50MB.",
-        variant: "destructive",
-      });
+    if (file.size > 100 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Max 100MB", variant: "destructive" });
       return;
     }
-
     setAudioFile(file);
-    const url = URL.createObjectURL(file);
-    setAudioPreview(url);
-
-    // Get audio duration
-    const audio = new Audio(url);
-    audio.addEventListener('loadedmetadata', () => {
-      setAudioDuration(audio.duration);
-    });
+    toast({ title: "Audio selected", description: file.name });
   };
 
   const handleArtworkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      toast({
-        title: "Invalid file type",
-        description: "Please select an image file.",
-        variant: "destructive",
-      });
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Select an image file", variant: "destructive" });
       return;
     }
-
     if (file.size > 10 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Image file must be less than 10MB.",
-        variant: "destructive",
-      });
+      toast({ title: "File too large", description: "Max 10MB", variant: "destructive" });
       return;
     }
-
     setArtworkFile(file);
-    const url = URL.createObjectURL(file);
-    setArtworkPreview(url);
+    toast({ title: "Artwork selected", description: file.name });
   };
 
-  const togglePlayPause = () => {
-    if (!audioRef.current) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const addTag = () => {
-    if (!tagInput.trim()) return;
-    
-    const newTag = tagInput.trim().toLowerCase();
-    if (!formData.metadata.tags.includes(newTag)) {
-      setFormData(prev => ({
-        ...prev,
-        metadata: {
-          ...prev.metadata,
-          tags: [...prev.metadata.tags, newTag]
-        }
-      }));
-    }
-    setTagInput('');
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setFormData(prev => ({
-      ...prev,
-      metadata: {
-        ...prev.metadata,
-        tags: prev.metadata.tags.filter(tag => tag !== tagToRemove)
-      }
-    }));
-  };
-
-  const handleSubmit = async () => {
-    if (!audioFile) {
-      toast({
-        title: "Missing audio file",
-        description: "Please select an audio file to upload.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!formData.title.trim()) {
-      toast({
-        title: "Missing title",
-        description: "Please enter a title for your song.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const data = new FormData();
-    data.append('audioFile', audioFile);
-    if (artworkFile) {
-      data.append('artworkFile', artworkFile);
-    }
-    
-    // Add form data
-    data.append('songData', JSON.stringify({
-      ...formData,
-      duration: Math.round(audioDuration),
-    }));
-
-    uploadMutation.mutate(data);
-  };
-
-  const getVisibilityIcon = (visibility: string) => {
-    switch (visibility) {
-      case 'public': return <Globe className="w-4 h-4" />;
-      case 'subscriber_only': return <Users className="w-4 h-4" />;
-      case 'private': return <Lock className="w-4 h-4" />;
-      default: return <Globe className="w-4 h-4" />;
-    }
-  };
-
-  const formatDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Please log in to upload music.</p>
-      </div>
-    );
+  // ------------------------ Submit ------------------------
+  const onSubmit = async (data: UploadForm) => {
+  if (!audioFile) {
+    toast({ title: "Audio required", description: "Please select an audio file", variant: "destructive" });
+    return;
   }
 
+  setIsUploading(true);
+  setUploadProgress(0);
+
+  try {
+    const formData = new FormData();
+    formData.append("audioFile", audioFile);
+    if (artworkFile) formData.append("artworkFile", artworkFile);
+
+    // Build songData for backend
+    const payload: any = {
+      title: data.title,
+      genre: data.genre,
+      description: data.description,
+      releaseDate: data.releaseDate
+        ? new Date(data.releaseDate).toISOString()
+        : new Date().toISOString(),
+      visibility: data.visibility,
+      monetization: {
+        isMonetized: data.isMonetized,
+        adEnabled: data.adEnabled,
+      },
+    };
+
+    if (data.isMonetized && data.price !== undefined && !isNaN(data.price)) {
+      payload.monetization.price = data.price;
+    }
+
+    formData.append("songData", JSON.stringify(payload));
+
+    const token = localStorage.getItem("token") || localStorage.getItem("authToken");
+    if (!token) throw new Error("No token found");
+
+    // ---------- Use XMLHttpRequest instead of fetch ----------
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/songs/upload", true);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    // Track upload progress
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = (event.loaded / event.total) * 100;
+        setUploadProgress(percent);
+      }
+    };
+
+    // Handle response
+    xhr.onload = () => {
+      try {
+        const resJson = JSON.parse(xhr.responseText || "{}");
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadProgress(100);
+          toast({ title: "Upload successful", description: `${resJson.title} uploaded.` });
+
+          // Reset form
+          form.reset({ visibility: "public", isMonetized: true, adEnabled: true });
+          setAudioFile(null);
+          setArtworkFile(null);
+          setUploadProgress(0);
+        } else {
+          throw new Error(resJson.error || resJson.message || "Upload failed");
+        }
+      } catch (err: any) {
+        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      } finally {
+        setIsUploading(false);
+      }
+    };
+
+    xhr.onerror = () => {
+      toast({ title: "Upload failed", description: "Network or server error", variant: "destructive" });
+      setIsUploading(false);
+    };
+
+    xhr.send(formData);
+  } catch (err: any) {
+    toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    setIsUploading(false);
+  }
+};
+
+
+  // ------------------------ Render ------------------------
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Upload Music</h1>
-          <p className="text-muted-foreground">Share your music with the world</p>
-        </div>
+    <div className="container mx-auto p-6 max-w-4xl">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Upload Music</h1>
+        <p className="text-gray-500">Share your track with the world</p>
+      </div>
 
-        {/* Progress Steps */}
-        <div className="mb-8">
-          <div className="flex items-center space-x-4 mb-4">
-            {[1, 2, 3].map((stepNum) => (
-              <div key={stepNum} className="flex items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  step >= stepNum ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                }`}>
-                  {stepNum}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="single">Single Track</TabsTrigger>
+          <TabsTrigger value="album">Album/EP</TabsTrigger>
+        </TabsList>
+
+        {/* Single track */}
+        <TabsContent value="single">
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload Single Track</CardTitle>
+              <CardDescription>Audio + metadata</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                {/* Audio */}
+                <div>
+                  <Label htmlFor="audio">Audio *</Label>
+                  <input type="file" id="audio" accept="audio/*" className="hidden" onChange={handleAudioUpload} />
+                  <Label htmlFor="audio" className="block border p-4 cursor-pointer text-center">
+                    <FileAudio className="mx-auto mb-2" />
+                    {audioFile ? audioFile.name : "Select audio file"}
+                  </Label>
                 </div>
-                {stepNum < 3 && (
-                  <div className={`w-16 h-1 ${
-                    step > stepNum ? 'bg-primary' : 'bg-muted'
-                  }`} />
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            Step {step} of 3: {
-              step === 1 ? 'Upload Files' : 
-              step === 2 ? 'Song Details' : 
-              'Publish Settings'
-            }
-          </div>
-        </div>
 
-        {/* Step 1: File Upload */}
-        {step === 1 && (
-          <div className="space-y-6">
-            {/* Audio Upload */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Music className="w-5 h-5 mr-2" />
-                  Audio File
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!audioFile ? (
-                  <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-12 text-center">
-                    <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                    <div className="space-y-2">
-                      <p className="text-lg font-medium">Drop your audio file here</p>
-                      <p className="text-sm text-muted-foreground">or click to browse</p>
-                      <p className="text-xs text-muted-foreground">Supports MP3, WAV, FLAC (max 50MB)</p>
+                {/* Artwork */}
+                <div>
+                  <Label htmlFor="artwork">Artwork (Optional)</Label>
+                  <input type="file" id="artwork" accept="image/*" className="hidden" onChange={handleArtworkUpload} />
+                  <Label htmlFor="artwork" className="block border p-4 cursor-pointer text-center">
+                    <Image className="mx-auto mb-2" />
+                    {artworkFile ? artworkFile.name : "Select artwork"}
+                  </Label>
+                </div>
+
+                {/* Title */}
+                <div>
+                  <Label>Title *</Label>
+                  <Input {...form.register("title")} placeholder="Song title" />
+                  {form.formState.errors.title && (
+                    <p className="text-red-500 text-sm">{form.formState.errors.title.message}</p>
+                  )}
+                </div>
+
+                {/* Genre */}
+                <div>
+                  <Label>Genre</Label>
+                  <Input {...form.register("genre")} placeholder="Pop, Rock..." />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <Label>Description</Label>
+                  <Textarea {...form.register("description")} placeholder="Describe your track" />
+                </div>
+
+                {/* Release Date */}
+                <div>
+                  <Label>Release Date</Label>
+                  <Input type="date" {...form.register("releaseDate")} />
+                </div>
+
+                {/* Visibility */}
+                <div>
+                  <Label>Visibility</Label>
+                  <RadioGroup
+                    defaultValue="public"
+                    onValueChange={(v) => form.setValue("visibility", v as any)}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="public" id="public" />
+                      <Label htmlFor="public">Public</Label>
                     </div>
-                    <Input
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleAudioUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="subscriber_only" id="subscriber_only" />
+                      <Label htmlFor="subscriber_only">Subscribers only</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="private" id="private" />
+                      <Label htmlFor="private">Private</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {/* Monetization */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>Enable Monetization</Label>
+                      <p className="text-sm text-gray-500">Allow purchase</p>
+                    </div>
+                    <Switch
+                      checked={form.watch("isMonetized")}
+                      onCheckedChange={(c) => form.setValue("isMonetized", c)}
                     />
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <Music className="w-8 h-8 text-primary" />
-                        <div>
-                          <p className="font-medium">{audioFile.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {(audioFile.size / (1024 * 1024)).toFixed(2)} MB
-                            {audioDuration > 0 && ` • ${formatDuration(audioDuration)}`}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {audioPreview && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={togglePlayPause}
-                          >
-                            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                          </Button>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setAudioFile(null);
-                            setAudioPreview(null);
-                            setAudioDuration(0);
-                          }}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
+                  {form.watch("isMonetized") && (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Price (USD)"
+                      onChange={(e) =>
+                        form.setValue("price", e.target.value ? parseFloat(e.target.value) : undefined)
+                      }
+                    />
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>Enable Ads</Label>
+                      <p className="text-sm text-gray-500">Show ads before playback</p>
                     </div>
-                    
-                    {audioPreview && (
+                    <Switch
+                      checked={form.watch("adEnabled")}
+                      onCheckedChange={(c) => form.setValue("adEnabled", c)}
+                    />
+                  </div>
+                </div>
+
+                {/* Progress */}
+                {isUploading && (
+                  <div>
+                    <Label>Upload progress</Label>
+                    <Progress value={uploadProgress} />
+                    <p className="text-sm">{uploadProgress.toFixed(0)}%</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex justify-end space-x-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      form.reset({ visibility: "public", isMonetized: true, adEnabled: true });
+                      setAudioFile(null);
+                      setArtworkFile(null);
+                    }}
+                    disabled={isUploading}
+                  >
+                    Reset
+                  </Button>
+                  <Button type="submit" disabled={isUploading || !audioFile} className="bg-red-600 hover:bg-red-700">
+                    {isUploading ? (
                       <>
-                        <audio
-                          ref={audioRef}
-                          src={audioPreview}
-                          onEnded={() => setIsPlaying(false)}
-                          onPlay={() => setIsPlaying(true)}
-                          onPause={() => setIsPlaying(false)}
-                        />
-                        <AudioVisualizer audioUrl={audioPreview} isPlaying={isPlaying} />
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Upload Song
                       </>
                     )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Artwork Upload */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <ImageIcon className="w-5 h-5 mr-2" />
-                  Artwork (Optional)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!artworkFile ? (
-                  <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center relative">
-                    <ImageIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm font-medium mb-1">Add cover art</p>
-                    <p className="text-xs text-muted-foreground mb-4">JPG, PNG (max 10MB, recommended 1000x1000)</p>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleArtworkUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-4">
-                    <div className="relative">
-                      <img
-                        src={artworkPreview!}
-                        alt="Artwork preview"
-                        className="w-24 h-24 object-cover rounded-lg"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setArtworkFile(null);
-                          setArtworkPreview(null);
-                        }}
-                        className="absolute -top-2 -right-2"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <div>
-                      <p className="font-medium">{artworkFile.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {(artworkFile.size / (1024 * 1024)).toFixed(2)} MB
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setStep(2)}
-                disabled={!audioFile}
-              >
-                Next: Song Details
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Song Details */}
-        {step === 2 && (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Basic Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="title">Song Title *</Label>
-                  <Input
-                    id="title"
-                    value={formData.title}
-                    onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="Enter song title"
-                  />
+                  </Button>
                 </div>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-                <div>
-                  <Label htmlFor="genre">Genre</Label>
-                  <Select
-                    value={formData.genre}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, genre: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select genre" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {genres.map(genre => (
-                        <SelectItem key={genre} value={genre}>{genre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Tell listeners about your song..."
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="releaseDate">Release Date</Label>
-                  <Input
-                    id="releaseDate"
-                    type="date"
-                    value={formData.releaseDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, releaseDate: e.target.value }))}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Additional Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label htmlFor="bpm">BPM</Label>
-                    <Input
-                      id="bpm"
-                      type="number"
-                      value={formData.metadata.bpm || ''}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        metadata: { ...prev.metadata, bpm: parseInt(e.target.value) || undefined }
-                      }))}
-                      placeholder="120"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="key">Key</Label>
-                    <Select
-                      value={formData.metadata.key || ''}
-                      onValueChange={(value) => setFormData(prev => ({
-                        ...prev,
-                        metadata: { ...prev.metadata, key: value }
-                      }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select key" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {keys.map(key => (
-                          <SelectItem key={key} value={key}>{key}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="mood">Mood</Label>
-                    <Select
-                      value={formData.metadata.mood || ''}
-                      onValueChange={(value) => setFormData(prev => ({
-                        ...prev,
-                        metadata: { ...prev.metadata, mood: value }
-                      }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select mood" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {moods.map(mood => (
-                          <SelectItem key={mood} value={mood}>{mood}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Tags</Label>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {formData.metadata.tags.map(tag => (
-                      <Badge key={tag} variant="secondary" className="flex items-center gap-1">
-                        {tag}
-                        <X className="w-3 h-3 cursor-pointer" onClick={() => removeTag(tag)} />
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      placeholder="Add tags (e.g., chill, summer, love)"
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                    />
-                    <Button type="button" onClick={addTag} variant="outline">
-                      <Tag className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="lyrics">Lyrics (Optional)</Label>
-                  <Textarea
-                    id="lyrics"
-                    value={formData.metadata.lyrics || ''}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      metadata: { ...prev.metadata, lyrics: e.target.value }
-                    }))}
-                    placeholder="Add your song lyrics..."
-                    rows={6}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(1)}>
-                Back
-              </Button>
-              <Button onClick={() => setStep(3)}>
-                Next: Publish Settings
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Publish Settings */}
-        {step === 3 && (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Eye className="w-5 h-5 mr-2" />
-                  Visibility
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { value: 'public', label: 'Public', desc: 'Anyone can listen to this song', icon: <Globe className="w-4 h-4" /> },
-                    { value: 'subscriber_only', label: 'Subscribers Only', desc: 'Only your subscribers can listen', icon: <Users className="w-4 h-4" /> },
-                    { value: 'private', label: 'Private', desc: 'Only you can access this song', icon: <Lock className="w-4 h-4" /> },
-                  ].map((option) => (
-                    <div
-                      key={option.value}
-                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                        formData.visibility === option.value ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-                      }`}
-                      onClick={() => setFormData(prev => ({ ...prev, visibility: option.value as any }))}
-                    >
-                      <div className="flex items-center space-x-3">
-                        {option.icon}
-                        <div>
-                          <p className="font-medium">{option.label}</p>
-                          <p className="text-sm text-muted-foreground">{option.desc}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <DollarSign className="w-5 h-5 mr-2" />
-                  Monetization
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="monetized">Enable Monetization</Label>
-                    <p className="text-sm text-muted-foreground">Allow fans to tip and support your music</p>
-                  </div>
-                  <Switch
-                    id="monetized"
-                    checked={formData.monetization.isMonetized}
-                    onCheckedChange={(checked) => setFormData(prev => ({
-                      ...prev,
-                      monetization: { ...prev.monetization, isMonetized: checked }
-                    }))}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="ads">Enable Ads</Label>
-                    <p className="text-sm text-muted-foreground">Show ads to generate revenue</p>
-                  </div>
-                  <Switch
-                    id="ads"
-                    checked={formData.monetization.adEnabled}
-                    onCheckedChange={(checked) => setFormData(prev => ({
-                      ...prev,
-                      monetization: { ...prev.monetization, adEnabled: checked }
-                    }))}
-                  />
-                </div>
-
-                {formData.monetization.isMonetized && (
-                  <div>
-                    <Label htmlFor="price">Premium Price (Optional)</Label>
-                    <div className="flex items-center space-x-2">
-                      <DollarSign className="w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="price"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.monetization.price || ''}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          monetization: { 
-                            ...prev.monetization, 
-                            price: parseFloat(e.target.value) || undefined 
-                          }
-                        }))}
-                        placeholder="0.99"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Set a price for premium access. Leave empty for free listening.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Upload Progress */}
-            {isUploading && (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Uploading...</span>
-                      <span className="text-sm text-muted-foreground">{uploadProgress}%</span>
-                    </div>
-                    <Progress value={uploadProgress} className="w-full" />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(2)} disabled={isUploading}>
-                Back
-              </Button>
-              <Button onClick={handleSubmit} disabled={isUploading}>
-                {isUploading ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-2" />
-                    Uploading...
-                  </>
-                ) : (
-                  'Publish Song'
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+        {/* Album placeholder */}
+        <TabsContent value="album">
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload Album/EP</CardTitle>
+              <CardDescription>Feature coming soon</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center py-12">
+              <Music className="mx-auto w-16 h-16 text-gray-400 mb-4" />
+              <p className="text-gray-500">Album upload is under development</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

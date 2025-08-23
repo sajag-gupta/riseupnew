@@ -24,11 +24,16 @@ export async function apiRequest(
 
   if (!response.ok) {
     if (response.status === 401) {
-      removeAuthToken();
-      // Only redirect to login if not already on auth pages
-      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+      // Only remove token and redirect if we're not already on auth pages
+      const isAuthPage = window.location.pathname.includes('/login') || 
+                        window.location.pathname.includes('/register') ||
+                        window.location.pathname === '/';
+      
+      if (!isAuthPage) {
+        removeAuthToken();
         window.location.href = '/login';
       }
+      
       const error = new Error('Authentication required');
       (error as any).status = response.status;
       throw error;
