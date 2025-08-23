@@ -185,378 +185,308 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User operations
+  private User = User;
+  private Artist = Artist;
+  private Song = Song;
+  private Album = Album;
+  private Playlist = Playlist;
+  private Subscription = Subscription;
+  private Product = Product;
+  private Event = Event;
+  private Order = Order;
+  private Ticket = Ticket;
+  private Blog = Blog;
+  private BlogComment = BlogComment;
+  private Ad = Ad;
+  private Analytics = Analytics;
+  private Notification = Notification;
+  private Report = Report;
+  private Follow = Follow;
+  private Like = Like;
+
+  // ---------------- USER ----------------
   async getUser(id: string): Promise<IUser | null> {
-    return await User.findById(id);
+    return this.User.findById(id);
   }
-
   async getUserByEmail(email: string): Promise<IUser | null> {
-    return await User.findOne({ email });
+    return this.User.findOne({ email });
   }
-
   async createUser(user: InsertUser): Promise<IUser> {
-    const newUser = new User(user);
-    return await newUser.save();
+    return new this.User(user).save();
   }
-
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<IUser | null> {
-    return await User.findByIdAndUpdate(id, updates, { new: true });
+    return this.User.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteUser(id: string): Promise<void> {
-    await User.findByIdAndDelete(id);
+    await this.User.findByIdAndDelete(id);
   }
 
-  // Artist operations
+  // ---------------- ARTIST ----------------
   async getArtist(id: string): Promise<IArtist | null> {
-    return await Artist.findById(id);
+    return this.Artist.findById(id);
   }
-
   async getArtistByUserId(userId: string): Promise<IArtist | null> {
-    return await Artist.findOne({ userId });
+    return this.Artist.findOne({ userId });
   }
-
   async createArtist(artist: InsertArtist): Promise<IArtist> {
-    const newArtist = new Artist(artist);
-    return await newArtist.save();
+    return new this.Artist(artist).save();
   }
-
   async updateArtist(id: string, updates: Partial<InsertArtist>): Promise<IArtist | null> {
-    return await Artist.findByIdAndUpdate(id, updates, { new: true });
+    return this.Artist.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async getFeaturedArtists(limit = 10): Promise<IArtist[]> {
-    return await Artist.find({ featured: true })
-      .sort({ trendingScore: -1 })
-      .limit(limit);
+    return this.Artist.find({ featured: true }).sort({ trendingScore: -1 }).limit(limit);
   }
-
   async searchArtists(query: string, limit = 20): Promise<IArtist[]> {
-    return await Artist.find().populate({
-        path: 'userId',
-        match: { name: { $regex: query, $options: 'i' } }
-      }).limit(limit);
+    return this.Artist.find({ name: { $regex: query, $options: "i" } })
+      .limit(limit)
+      .lean();
   }
 
-  // Song operations
+  // ---------------- SONG ----------------
   async getSong(id: string): Promise<ISong | null> {
-    return await Song.findById(id);
+    return this.Song.findById(id);
   }
-
   async getSongsByArtist(artistId: string, limit = 50): Promise<ISong[]> {
-    return await Song.find({ artistId })
-      .sort({ createdAt: -1 })
-      .limit(limit);
+    return this.Song.find({ artistId }).sort({ createdAt: -1 }).limit(limit);
   }
-
   async createSong(song: InsertSong): Promise<ISong> {
-    const newSong = new Song(song);
-    return await newSong.save();
+    return new this.Song(song).save();
   }
-
   async updateSong(id: string, updates: Partial<InsertSong>): Promise<ISong | null> {
-    return await Song.findByIdAndUpdate(id, updates, { new: true });
+    return this.Song.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteSong(id: string): Promise<void> {
-    await Song.findByIdAndDelete(id);
+    await this.Song.findByIdAndDelete(id);
   }
-
   async getTrendingSongs(limit = 20): Promise<ISong[]> {
-    return await Song.find({ visibility: 'public' })
-      .sort({ 'analytics.trendingScore': -1 })
+    return this.Song.find({ visibility: "public" })
+      .sort({ "analytics.trendingScore": -1 })
       .limit(limit);
   }
-
   async searchSongs(query: string, limit = 50): Promise<ISong[]> {
-    return await Song.find({
-      visibility: 'public',
+    return this.Song.find({
+      visibility: "public",
       $or: [
-        { title: { $regex: query, $options: 'i' } },
-        { genre: { $regex: query, $options: 'i' } }
-      ]
+        { title: { $regex: query, $options: "i" } },
+        { genre: { $regex: query, $options: "i" } },
+      ],
     }).limit(limit);
   }
 
-  // Album operations
+  // ---------------- ALBUM ----------------
   async getAlbum(id: string): Promise<IAlbum | null> {
-    return await Album.findById(id);
+    return this.Album.findById(id);
   }
-
   async getAlbumsByArtist(artistId: string): Promise<IAlbum[]> {
-    return await Album.find({ artistId }).sort({ releaseDate: -1 });
+    return this.Album.find({ artistId }).sort({ releaseDate: -1 });
   }
-
   async createAlbum(album: InsertAlbum): Promise<IAlbum> {
-    const newAlbum = new Album(album);
-    return await newAlbum.save();
+    return new this.Album(album).save();
   }
-
   async updateAlbum(id: string, updates: Partial<InsertAlbum>): Promise<IAlbum | null> {
-    return await Album.findByIdAndUpdate(id, updates, { new: true });
+    return this.Album.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteAlbum(id: string): Promise<void> {
-    await Album.findByIdAndDelete(id);
+    await this.Album.findByIdAndDelete(id);
   }
 
-  // Playlist operations
+  // ---------------- PLAYLIST ----------------
   async getPlaylist(id: string): Promise<IPlaylist | null> {
-    return await Playlist.findById(id);
+    return this.Playlist.findById(id);
   }
-
   async getPlaylistsByUser(userId: string): Promise<IPlaylist[]> {
-    return await Playlist.find({ ownerId: userId }).sort({ updatedAt: -1 });
+    return this.Playlist.find({ ownerId: userId }).sort({ updatedAt: -1 });
   }
-
   async createPlaylist(playlist: InsertPlaylist): Promise<IPlaylist> {
-    const newPlaylist = new Playlist(playlist);
-    return await newPlaylist.save();
+    return new this.Playlist(playlist).save();
   }
-
   async updatePlaylist(id: string, updates: Partial<InsertPlaylist>): Promise<IPlaylist | null> {
-    return await Playlist.findByIdAndUpdate(id, updates, { new: true });
+    return this.Playlist.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deletePlaylist(id: string): Promise<void> {
-    await Playlist.findByIdAndDelete(id);
+    await this.Playlist.findByIdAndDelete(id);
   }
 
-  // Subscription operations
+  // ---------------- SUBSCRIPTION ----------------
   async getSubscription(id: string): Promise<ISubscription | null> {
-    return await Subscription.findById(id);
+    return this.Subscription.findById(id);
   }
-
   async getSubscriptionsByFan(fanId: string): Promise<ISubscription[]> {
-    return await Subscription.find({ fanId }).sort({ createdAt: -1 });
+    return this.Subscription.find({ fanId }).sort({ createdAt: -1 });
   }
-
   async getSubscriptionsByArtist(artistId: string): Promise<ISubscription[]> {
-    return await Subscription.find({ artistId }).sort({ createdAt: -1 });
+    return this.Subscription.find({ artistId }).sort({ createdAt: -1 });
   }
-
   async createSubscription(subscription: InsertSubscription): Promise<ISubscription> {
-    const newSubscription = new Subscription(subscription);
-    return await newSubscription.save();
+    return new this.Subscription(subscription).save();
   }
-
   async updateSubscription(id: string, updates: Partial<InsertSubscription>): Promise<ISubscription | null> {
-    return await Subscription.findByIdAndUpdate(id, updates, { new: true });
+    return this.Subscription.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async cancelSubscription(id: string): Promise<void> {
-    await Subscription.findByIdAndUpdate(id, { status: 'cancelled' });
+    await this.Subscription.findByIdAndUpdate(id, { status: "cancelled" });
   }
 
-  // Product operations
+  // ---------------- PRODUCT ----------------
   async getProduct(id: string): Promise<IProduct | null> {
-    return await Product.findById(id);
+    return this.Product.findById(id);
   }
-
   async getProductsByArtist(artistId: string): Promise<IProduct[]> {
-    return await Product.find({ artistId, isActive: true }).sort({ createdAt: -1 });
+    return this.Product.find({ artistId, isActive: true }).sort({ createdAt: -1 });
   }
-
   async createProduct(product: InsertProduct): Promise<IProduct> {
-    const newProduct = new Product(product);
-    return await newProduct.save();
+    return new this.Product(product).save();
   }
-
   async updateProduct(id: string, updates: Partial<InsertProduct>): Promise<IProduct | null> {
-    return await Product.findByIdAndUpdate(id, updates, { new: true });
+    return this.Product.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteProduct(id: string): Promise<void> {
-    await Product.findByIdAndUpdate(id, { isActive: false });
+    await this.Product.findByIdAndUpdate(id, { isActive: false });
   }
-
   async searchProducts(query: string, limit = 50): Promise<IProduct[]> {
-    return await Product.find({
+    return this.Product.find({
       isActive: true,
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } }
-      ]
+        { name: { $regex: query, $options: "i" } },
+        { description: { $regex: query, $options: "i" } },
+      ],
     }).limit(limit);
   }
 
-  // Event operations
+  // ---------------- EVENT ----------------
   async getEvent(id: string): Promise<IEvent | null> {
-    return await Event.findById(id);
+    return this.Event.findById(id);
   }
-
   async getEventsByArtist(artistId: string): Promise<IEvent[]> {
-    return await Event.find({ artistId }).sort({ dateTime: 1 });
+    return this.Event.find({ artistId }).sort({ dateTime: 1 });
   }
-
   async getUpcomingEvents(limit = 20): Promise<IEvent[]> {
-    return await Event.find({
-      status: 'published',
-      dateTime: { $gt: new Date() }
-    })
+    return this.Event.find({ status: "published", dateTime: { $gt: new Date() } })
       .sort({ dateTime: 1 })
       .limit(limit);
   }
-
   async createEvent(event: InsertEvent): Promise<IEvent> {
-    const newEvent = new Event(event);
-    return await newEvent.save();
+    return new this.Event(event).save();
   }
-
   async updateEvent(id: string, updates: Partial<InsertEvent>): Promise<IEvent | null> {
-    return await Event.findByIdAndUpdate(id, updates, { new: true });
+    return this.Event.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteEvent(id: string): Promise<void> {
-    await Event.findByIdAndDelete(id);
+    await this.Event.findByIdAndDelete(id);
   }
-
   async searchEvents(query: string, limit = 50): Promise<IEvent[]> {
-    return await Event.find({
-      status: 'published',
+    return this.Event.find({
+      status: "published",
       $or: [
-        { title: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } }
-      ]
+        { title: { $regex: query, $options: "i" } },
+        { description: { $regex: query, $options: "i" } },
+      ],
     }).limit(limit);
   }
 
-  // Order operations
+  // ---------------- ORDER ----------------
   async getOrder(id: string): Promise<IOrder | null> {
-    return await Order.findById(id);
+    return this.Order.findById(id);
   }
-
   async getOrdersByUser(userId: string): Promise<IOrder[]> {
-    return await Order.find({ buyerId: userId }).sort({ createdAt: -1 });
+    return this.Order.find({ buyerId: userId }).sort({ createdAt: -1 });
   }
-
   async createOrder(order: InsertOrder): Promise<IOrder> {
-    const newOrder = new Order(order);
-    return await newOrder.save();
+    return new this.Order(order).save();
   }
-
   async updateOrder(id: string, updates: Partial<InsertOrder>): Promise<IOrder | null> {
-    return await Order.findByIdAndUpdate(id, updates, { new: true });
+    return this.Order.findByIdAndUpdate(id, updates, { new: true });
   }
 
-  // Ticket operations
+  // ---------------- TICKET ----------------
   async getTicket(id: string): Promise<ITicket | null> {
-    return await Ticket.findById(id);
+    return this.Ticket.findById(id);
   }
-
   async getTicketsByUser(userId: string): Promise<ITicket[]> {
-    return await Ticket.find({ buyerId: userId }).sort({ createdAt: -1 });
+    return this.Ticket.find({ buyerId: userId }).sort({ createdAt: -1 });
   }
-
   async getTicketsByEvent(eventId: string): Promise<ITicket[]> {
-    return await Ticket.find({ eventId }).sort({ createdAt: -1 });
+    return this.Ticket.find({ eventId }).sort({ createdAt: -1 });
   }
-
   async createTicket(ticket: InsertTicket): Promise<ITicket> {
-    const newTicket = new Ticket(ticket);
-    return await newTicket.save();
+    return new this.Ticket(ticket).save();
   }
-
   async updateTicket(id: string, updates: Partial<InsertTicket>): Promise<ITicket | null> {
-    return await Ticket.findByIdAndUpdate(id, updates, { new: true });
+    return this.Ticket.findByIdAndUpdate(id, updates, { new: true });
   }
 
-  // Blog operations
+  // ---------------- BLOG ----------------
   async getBlog(id: string): Promise<IBlog | null> {
-    return await Blog.findById(id);
+    return this.Blog.findById(id);
   }
-
   async getBlogsByAuthor(authorId: string): Promise<IBlog[]> {
-    return await Blog.find({ authorId }).sort({ createdAt: -1 });
+    return this.Blog.find({ authorId }).sort({ createdAt: -1 });
   }
-
   async getPublishedBlogs(limit = 20): Promise<IBlog[]> {
-    return await Blog.find({ status: 'published' })
-      .sort({ publishedAt: -1 })
-      .limit(limit);
+    return this.Blog.find({ status: "published" }).sort({ publishedAt: -1 }).limit(limit);
   }
-
   async createBlog(blog: InsertBlog): Promise<IBlog> {
-    const newBlog = new Blog(blog);
-    return await newBlog.save();
+    return new this.Blog(blog).save();
   }
-
   async updateBlog(id: string, updates: Partial<InsertBlog>): Promise<IBlog | null> {
-    return await Blog.findByIdAndUpdate(id, updates, { new: true });
+    return this.Blog.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteBlog(id: string): Promise<void> {
-    await Blog.findByIdAndDelete(id);
+    await this.Blog.findByIdAndDelete(id);
   }
 
-  // Blog comment operations
+  // ---------------- BLOG COMMENT ----------------
   async getBlogComment(id: string): Promise<IBlogComment | null> {
-    return await BlogComment.findById(id);
+    return this.BlogComment.findById(id);
   }
-
   async getBlogCommentsByBlog(blogId: string): Promise<IBlogComment[]> {
-    return await BlogComment.find({ blogId }).sort({ createdAt: -1 });
+    return this.BlogComment.find({ blogId }).sort({ createdAt: -1 });
   }
-
   async createBlogComment(comment: InsertBlogComment): Promise<IBlogComment> {
-    const newComment = new BlogComment(comment);
-    return await newComment.save();
+    return new this.BlogComment(comment).save();
   }
-
   async updateBlogComment(id: string, updates: Partial<InsertBlogComment>): Promise<IBlogComment | null> {
-    return await BlogComment.findByIdAndUpdate(id, updates, { new: true });
+    return this.BlogComment.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteBlogComment(id: string): Promise<void> {
-    await BlogComment.findByIdAndDelete(id);
+    await this.BlogComment.findByIdAndDelete(id);
   }
 
-  // Follow operations
+  // ---------------- FOLLOW ----------------
   async followArtist(followerId: string, artistId: string): Promise<IFollow> {
-    const follow = new Follow({ followerId, followingId: artistId });
-    return await follow.save();
+    return new this.Follow({ followerId, followingId: artistId }).save();
   }
-
   async unfollowArtist(followerId: string, artistId: string): Promise<void> {
-    await Follow.findOneAndDelete({ followerId, followingId: artistId });
+    await this.Follow.findOneAndDelete({ followerId, followingId: artistId });
   }
-
   async getFollowedArtists(userId: string): Promise<IArtist[]> {
-    const follows = await Follow.find({ followerId: userId }).populate('followingId');
-    return follows.map(f => f.followingId as any);
+    const follows = await this.Follow.find({ followerId: userId }).populate("followingId");
+    return follows.map((f) => f.followingId as any);
   }
-
   async isFollowing(followerId: string, artistId: string): Promise<boolean> {
-    const follow = await Follow.findOne({ followerId, followingId: artistId });
-    return !!follow;
+    return !!(await this.Follow.findOne({ followerId, followingId: artistId }));
   }
 
-  // Like operations
+  // ---------------- LIKE ----------------
   async likeSong(userId: string, songId: string): Promise<ILike> {
-    const like = new Like({ userId, songId });
-    return await like.save();
+    return new this.Like({ userId, songId }).save();
   }
-
   async unlikeSong(userId: string, songId: string): Promise<void> {
-    await Like.findOneAndDelete({ userId, songId });
+    await this.Like.findOneAndDelete({ userId, songId });
   }
-
   async getLikedSongs(userId: string): Promise<ISong[]> {
-    const likes = await Like.find({ userId }).populate('songId');
-    return likes.map(l => l.songId as any);
+    const likes = await this.Like.find({ userId }).populate("songId");
+    return likes.map((l) => l.songId as any);
   }
-
   async isLiked(userId: string, songId: string): Promise<boolean> {
-    const like = await Like.findOne({ userId, songId });
-    return !!like;
+    return !!(await this.Like.findOne({ userId, songId }));
   }
 
-  // Analytics operations
+  // ---------------- ANALYTICS ----------------
   async trackEvent(analyticsData: InsertAnalytics): Promise<IAnalytics> {
-    const analytics = new Analytics(analyticsData);
-    return await analytics.save();
+    return new this.Analytics(analyticsData).save();
   }
-
   async getAnalytics(filters: {
     userId?: string;
     eventType?: string;
@@ -564,79 +494,66 @@ export class DatabaseStorage implements IStorage {
     endDate?: Date;
   }): Promise<IAnalytics[]> {
     const query: any = {};
-
     if (filters.userId) query.userId = filters.userId;
     if (filters.eventType) query.eventType = filters.eventType;
-    if (filters.startDate) query.timestamp = { $gte: filters.startDate };
-    if (filters.endDate) query.timestamp = { ...query.timestamp, $lte: filters.endDate };
-
-    return await Analytics.find(query).sort({ timestamp: -1 });
+    if (filters.startDate || filters.endDate) {
+      query.timestamp = {};
+      if (filters.startDate) query.timestamp.$gte = filters.startDate;
+      if (filters.endDate) query.timestamp.$lte = filters.endDate;
+    }
+    return this.Analytics.find(query).sort({ timestamp: -1 });
   }
 
-  // Notification operations
+  // ---------------- NOTIFICATIONS ----------------
   async getNotification(id: string): Promise<INotification | null> {
-    return await Notification.findById(id);
+    return this.Notification.findById(id);
   }
-
   async getNotificationsByUser(userId: string): Promise<INotification[]> {
-    return await Notification.find({ recipientId: userId }).sort({ createdAt: -1 });
+    return this.Notification.find({ recipientId: userId }).sort({ createdAt: -1 });
   }
-
   async createNotification(notification: InsertNotification): Promise<INotification> {
-    const newNotification = new Notification(notification);
-    return await newNotification.save();
+    return new this.Notification(notification).save();
   }
-
   async markNotificationAsRead(id: string): Promise<void> {
-    await Notification.findByIdAndUpdate(id, { isRead: true, readAt: new Date() });
+    await this.Notification.findByIdAndUpdate(id, { isRead: true, readAt: new Date() });
   }
-
   async markAllNotificationsAsRead(userId: string): Promise<void> {
-    await Notification.updateMany(
+    await this.Notification.updateMany(
       { recipientId: userId },
       { isRead: true, readAt: new Date() }
     );
   }
 
-  // Report operations
+  // ---------------- REPORT ----------------
   async getReport(id: string): Promise<IReport | null> {
-    return await Report.findById(id);
+    return this.Report.findById(id);
   }
-
   async getReports(status?: string): Promise<IReport[]> {
     const query = status ? { status } : {};
-    return await Report.find(query).sort({ createdAt: -1 });
+    return this.Report.find(query).sort({ createdAt: -1 });
   }
-
   async createReport(report: InsertReport): Promise<IReport> {
-    const newReport = new Report(report);
-    return await newReport.save();
+    return new this.Report(report).save();
   }
-
   async updateReport(id: string, updates: Partial<InsertReport>): Promise<IReport | null> {
-    return await Report.findByIdAndUpdate(id, updates, { new: true });
+    return this.Report.findByIdAndUpdate(id, updates, { new: true });
   }
 
-  // Ad operations
+  // ---------------- ADS ----------------
   async getAd(id: string): Promise<IAd | null> {
-    return await Ad.findById(id);
+    return this.Ad.findById(id);
   }
-
   async getActiveAds(): Promise<IAd[]> {
-    return await Ad.find({ status: 'active' }).sort({ createdAt: -1 });
+    return this.Ad.find({ status: "active" }).sort({ createdAt: -1 });
   }
-
   async createAd(ad: InsertAd): Promise<IAd> {
-    const newAd = new Ad(ad);
-    return await newAd.save();
+    return new this.Ad(ad).save();
   }
-
   async updateAd(id: string, updates: Partial<InsertAd>): Promise<IAd | null> {
-    return await Ad.findByIdAndUpdate(id, updates, { new: true });
+    return this.Ad.findByIdAndUpdate(id, updates, { new: true });
   }
-
   async deleteAd(id: string): Promise<void> {
-    await Ad.findByIdAndDelete(id);
+    await this.Ad.findByIdAndDelete(id);
   }
 }
 

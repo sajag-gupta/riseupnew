@@ -865,6 +865,7 @@ const blogSchema = new Schema<IBlog>({
 
 // Blog Comment Interface and Schema
 export interface IBlogComment extends Document {
+  authorId: any;
   _id: string;
   blogId: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
@@ -1028,7 +1029,7 @@ const analyticsSchema = new Schema<IAnalytics>({
     _id: false
   },
   context: {
-    page: { type: String, required: true },
+    page: { type: String, required: true, default: 'unknown' },
     userAgent: String,
     deviceType: String,
     location: Schema.Types.Mixed,
@@ -1037,6 +1038,70 @@ const analyticsSchema = new Schema<IAnalytics>({
   },
   timestamp: { type: Date, default: Date.now }
 });
+
+// Follow Interface and Schema
+export interface IFollow extends Document {
+  _id: string;
+  followerId: mongoose.Types.ObjectId;
+  followingId: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const followSchema = new Schema<IFollow>({
+  followerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  followingId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true }
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+// Like Interface and Schema
+export interface ILike extends Document {
+  _id: string;
+  userId: mongoose.Types.ObjectId;
+  songId: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const likeSchema = new Schema<ILike>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  songId: { type: Schema.Types.ObjectId, ref: 'Song', required: true }
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+// Add indexes for better performance
+userSchema.index({ email: 1 });
+userSchema.index({ role: 1 });
+userSchema.index({ 'subscription.isPremium': 1 });
+
+artistSchema.index({ userId: 1 });
+artistSchema.index({ verification: 1 });
+artistSchema.index({ featured: 1, trendingScore: -1 });
+
+songSchema.index({ artistId: 1 });
+songSchema.index({ visibility: 1 });
+songSchema.index({ 'analytics.trendingScore': -1 });
+songSchema.index({ genre: 1 });
+songSchema.index({ createdAt: -1 });
+
+playlistSchema.index({ ownerId: 1 });
+playlistSchema.index({ isPublic: 1 });
+
+eventSchema.index({ artistId: 1 });
+eventSchema.index({ dateTime: 1 });
+eventSchema.index({ status: 1 });
+
+orderSchema.index({ buyerId: 1 });
+orderSchema.index({ status: 1 });
+orderSchema.index({ createdAt: -1 });
+
+analyticsSchema.index({ userId: 1, timestamp: -1 });
+analyticsSchema.index({ eventType: 1, timestamp: -1 });
+analyticsSchema.index({ sessionId: 1 });
+
+followSchema.index({ followerId: 1 });
+followSchema.index({ followingId: 1 });
+followSchema.index({ followerId: 1, followingId: 1 }, { unique: true });
+
+likeSchema.index({ userId: 1 });
+likeSchema.index({ songId: 1 });
+likeSchema.index({ userId: 1, songId: 1 }, { unique: true });
 
 // Notification Interface and Schema
 export interface INotification extends Document {
@@ -1092,32 +1157,6 @@ const reportSchema = new Schema<IReport>({
   moderatorNotes: String,
   action: { type: String, maxlength: 100 },
   resolvedAt: Date
-}, { timestamps: { createdAt: true, updatedAt: false } });
-
-// Follow Interface and Schema
-export interface IFollow extends Document {
-  _id: string;
-  followerId: mongoose.Types.ObjectId;
-  followingId: mongoose.Types.ObjectId;
-  createdAt: Date;
-}
-
-const followSchema = new Schema<IFollow>({
-  followerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  followingId: { type: Schema.Types.ObjectId, ref: 'Artist', required: true }
-}, { timestamps: { createdAt: true, updatedAt: false } });
-
-// Like Interface and Schema
-export interface ILike extends Document {
-  _id: string;
-  userId: mongoose.Types.ObjectId;
-  songId: mongoose.Types.ObjectId;
-  createdAt: Date;
-}
-
-const likeSchema = new Schema<ILike>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  songId: { type: Schema.Types.ObjectId, ref: 'Song', required: true }
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
 // Create Models

@@ -95,13 +95,23 @@ export class AuthService {
   }
 
   async getUserFromToken(token: string): Promise<User | null> {
-    const payload = this.verifyToken(token);
-    if (!payload) {
+    try {
+      if (!token) return null;
+
+      const decoded = jwt.verify(token, this.jwtSecret) as any;
+      const userId = decoded.id || decoded.userId || decoded.sub;
+
+      if (!userId) {
+        console.error('No user ID found in token');
+        return null;
+      }
+
+      const user = await storage.getUser(userId);
+      return user;
+    } catch (error) {
+      console.error('Token validation error:', error);
       return null;
     }
-
-    const user = await storage.getUser(payload.userId);
-    return user || null;
   }
 
   async resetPassword(email: string, newPassword: string): Promise<void> {

@@ -1,8 +1,10 @@
-import { storage } from '../storage';
-import type { InsertAnalytics } from '@shared/schema';
+import { storage } from "../storage";
+import type { InsertAnalytics } from "@shared/schema";
+import { Types } from "mongoose";
 
+// ------------------ Types ------------------
 export interface AnalyticsEvent {
-  userId?: string;
+  userId?: string;          // accept string from FE
   sessionId?: string;
   action: string;
   category: string;
@@ -14,13 +16,20 @@ export interface AnalyticsEvent {
   deviceType?: string;
   location?: any;
   referrer?: string;
+  timestamp?: Date;
 }
 
+// ------------------ Service ------------------
 export class AnalyticsService {
   async track(event: AnalyticsEvent): Promise<void> {
     try {
+      let userIdObj: Types.ObjectId | undefined;
+      if (event.userId && Types.ObjectId.isValid(event.userId)) {
+        userIdObj = new Types.ObjectId(event.userId);
+      }
+
       const analyticsData: InsertAnalytics = {
-        userId: event.userId,
+        userId: userIdObj,
         sessionId: event.sessionId,
         eventType: event.action,
         eventData: {
@@ -31,137 +40,155 @@ export class AnalyticsService {
           metadata: event.metadata,
         },
         context: {
-          page: event.page || '',
+          page: event.page || "",
           userAgent: event.userAgent,
           deviceType: event.deviceType,
           location: event.location,
           referrer: event.referrer,
         },
+        timestamp: event.timestamp || new Date(),
       };
 
       await storage.trackEvent(analyticsData);
     } catch (error) {
-      console.error('Analytics tracking error:', error);
-      // Don't throw error to avoid breaking the main application flow
+      console.error("Analytics tracking error:", error);
+      // Analytics should never block core flow
     }
   }
 
-  async trackPlay(songId: string, userId?: string, sessionId?: string): Promise<void> {
+  // ------------------ Specific Trackers ------------------
+  async trackPlay(songId: string, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'play',
-      category: 'music',
+      action: "play",
+      category: "music",
       label: songId,
       metadata: { songId },
     });
   }
 
-  async trackLike(songId: string, userId?: string, sessionId?: string): Promise<void> {
+  async trackLike(songId: string, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'like',
-      category: 'engagement',
+      action: "like",
+      category: "engagement",
       label: songId,
       metadata: { songId },
     });
   }
 
-  async trackFollow(artistId: string, userId?: string, sessionId?: string): Promise<void> {
+  async trackFollow(artistId: string, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'follow',
-      category: 'social',
+      action: "follow",
+      category: "social",
       label: artistId,
       metadata: { artistId },
     });
   }
 
-  async trackSubscribe(artistId: string, tier: string, userId?: string, sessionId?: string): Promise<void> {
+  async trackSubscribe(artistId: string, tier: string, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'subscribe',
-      category: 'monetization',
+      action: "subscribe",
+      category: "monetization",
       label: artistId,
       metadata: { artistId, tier },
     });
   }
 
-  async trackPurchase(orderId: string, totalAmount: number, userId?: string, sessionId?: string): Promise<void> {
+  async trackPurchase(orderId: string, totalAmount: number, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'purchase',
-      category: 'monetization',
+      action: "purchase",
+      category: "monetization",
       label: orderId,
       value: totalAmount,
       metadata: { orderId, totalAmount },
     });
   }
 
-  async trackSearch(query: string, resultsCount: number, userId?: string, sessionId?: string): Promise<void> {
+  async trackSearch(query: string, resultsCount: number, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'search',
-      category: 'discovery',
+      action: "search",
+      category: "discovery",
       label: query,
       value: resultsCount,
       metadata: { query, resultsCount },
     });
   }
 
-  async trackPageView(page: string, userId?: string, sessionId?: string, metadata?: any): Promise<void> {
+  async trackPageView(page: string, userId?: string, sessionId?: string, metadata?: any) {
     await this.track({
       userId,
       sessionId,
-      action: 'page_view',
-      category: 'navigation',
+      action: "page_view",
+      category: "navigation",
       label: page,
       metadata: { page, ...metadata },
     });
   }
 
-  async trackSignup(role: string, userId?: string, sessionId?: string): Promise<void> {
+  async trackSignup(role: string, userId?: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'signup',
-      category: 'auth',
+      action: "signup",
+      category: "auth",
       label: role,
       metadata: { role },
     });
   }
 
-  async trackLogin(userId: string, sessionId?: string): Promise<void> {
+  async trackLogin(userId: string, sessionId?: string) {
     await this.track({
       userId,
       sessionId,
-      action: 'login',
-      category: 'auth',
+      action: "login",
+      category: "auth",
       metadata: { userId },
     });
   }
 
-  async getPlayStats(songId: string, startDate?: Date, endDate?: Date): Promise<any> {
-    const analytics = await storage.getAnalytics({
-      eventType: 'play',
-      startDate,
-      endDate,
+  async trackLogout(userId: string, sessionId?: string) {
+    await this.track({
+      userId,
+      sessionId,
+      action: "logout",
+      category: "auth",
+      metadata: { userId },
     });
-
-    return analytics.filter(a => a.eventData.metadata?.songId === songId);
   }
 
-  async getUserEngagement(userId: string, startDate?: Date, endDate?: Date): Promise<any> {
-    const analytics = await storage.getAnalytics({
+  async trackEventGeneric(action: string, category: string, metadata?: any, userId?: string, sessionId?: string) {
+    await this.track({
       userId,
+      sessionId,
+      action,
+      category,
+      metadata,
+    });
+  }
+
+  // ------------------ Analytics Queries ------------------
+  async getPlayStats(songId: string, startDate?: Date, endDate?: Date) {
+    const analytics = await storage.getAnalytics({
+      eventType: "play",
       startDate,
       endDate,
     });
+    return analytics.filter((a) => a.eventData.metadata?.songId === songId);
+  }
+
+  async getUserEngagement(userId: string, startDate?: Date, endDate?: Date) {
+    const analytics = await storage.getAnalytics({ userId, startDate, endDate });
 
     const engagement = {
       totalActions: analytics.length,
@@ -173,46 +200,32 @@ export class AnalyticsService {
       searchCount: 0,
     };
 
-    analytics.forEach(event => {
+    analytics.forEach((event) => {
       switch (event.eventType) {
-        case 'play':
-          engagement.playCount++;
-          break;
-        case 'like':
-          engagement.likeCount++;
-          break;
-        case 'follow':
-          engagement.followCount++;
-          break;
-        case 'subscribe':
-          engagement.subscriptionCount++;
-          break;
-        case 'purchase':
-          engagement.purchaseCount++;
-          break;
-        case 'search':
-          engagement.searchCount++;
-          break;
+        case "play": engagement.playCount++; break;
+        case "like": engagement.likeCount++; break;
+        case "follow": engagement.followCount++; break;
+        case "subscribe": engagement.subscriptionCount++; break;
+        case "purchase": engagement.purchaseCount++; break;
+        case "search": engagement.searchCount++; break;
       }
     });
 
     return engagement;
   }
 
-  async getPopularContent(type: 'songs' | 'artists', limit = 10, startDate?: Date, endDate?: Date): Promise<any[]> {
+  async getPopularContent(type: "songs" | "artists", limit = 10, startDate?: Date, endDate?: Date) {
     const analytics = await storage.getAnalytics({
-      eventType: type === 'songs' ? 'play' : 'follow',
+      eventType: type === "songs" ? "play" : "follow",
       startDate,
       endDate,
     });
 
-    const contentCounts = new Map();
+    const contentCounts = new Map<string, number>();
 
-    analytics.forEach(event => {
-      const contentId = type === 'songs' 
-        ? event.eventData.metadata?.songId 
-        : event.eventData.metadata?.artistId;
-      
+    analytics.forEach((event) => {
+      const contentId =
+        type === "songs" ? event.eventData.metadata?.songId : event.eventData.metadata?.artistId;
       if (contentId) {
         contentCounts.set(contentId, (contentCounts.get(contentId) || 0) + 1);
       }
@@ -224,38 +237,32 @@ export class AnalyticsService {
       .map(([id, count]) => ({ id, count }));
   }
 
-  async getDashboardStats(userId?: string, isArtist = false): Promise<any> {
+  async getDashboardStats(userId?: string, isArtist = false) {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     if (isArtist) {
-      // Get artist-specific stats
       const analytics = await storage.getAnalytics({
         startDate: thirtyDaysAgo,
         endDate: now,
       });
 
-      // Filter analytics for content owned by this artist
-      // This would require additional metadata to link plays to artist ownership
       return {
-        totalPlays: analytics.filter(a => a.eventType === 'play').length,
-        totalLikes: analytics.filter(a => a.eventType === 'like').length,
-        totalFollows: analytics.filter(a => a.eventType === 'follow').length,
-        totalSubscriptions: analytics.filter(a => a.eventType === 'subscribe').length,
+        totalPlays: analytics.filter((a) => a.eventType === "play").length,
+        totalLikes: analytics.filter((a) => a.eventType === "like").length,
+        totalFollows: analytics.filter((a) => a.eventType === "follow").length,
+        totalSubscriptions: analytics.filter((a) => a.eventType === "subscribe").length,
         weeklyGrowth: {
-          plays: analytics.filter(a => 
-            a.eventType === 'play' && 
-            new Date(a.timestamp!) >= sevenDaysAgo
+          plays: analytics.filter(
+            (a) => a.eventType === "play" && new Date(a.timestamp!) >= sevenDaysAgo
           ).length,
-          follows: analytics.filter(a => 
-            a.eventType === 'follow' && 
-            new Date(a.timestamp!) >= sevenDaysAgo
+          follows: analytics.filter(
+            (a) => a.eventType === "follow" && new Date(a.timestamp!) >= sevenDaysAgo
           ).length,
         },
       };
     } else {
-      // Get fan-specific stats
       const analytics = await storage.getAnalytics({
         userId,
         startDate: thirtyDaysAgo,
@@ -263,14 +270,15 @@ export class AnalyticsService {
       });
 
       return {
-        totalPlays: analytics.filter(a => a.eventType === 'play').length,
-        totalLikes: analytics.filter(a => a.eventType === 'like').length,
-        totalFollows: analytics.filter(a => a.eventType === 'follow').length,
-        totalPurchases: analytics.filter(a => a.eventType === 'purchase').length,
-        weeklyActivity: analytics.filter(a => new Date(a.timestamp!) >= sevenDaysAgo).length,
+        totalPlays: analytics.filter((a) => a.eventType === "play").length,
+        totalLikes: analytics.filter((a) => a.eventType === "like").length,
+        totalFollows: analytics.filter((a) => a.eventType === "follow").length,
+        totalPurchases: analytics.filter((a) => a.eventType === "purchase").length,
+        weeklyActivity: analytics.filter((a) => new Date(a.timestamp!) >= sevenDaysAgo).length,
       };
     }
   }
 }
 
+// Export singleton
 export const analyticsService = new AnalyticsService();

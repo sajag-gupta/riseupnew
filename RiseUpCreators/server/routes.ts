@@ -1,30 +1,28 @@
+// routes.ts
 import type { Express } from "express";
 import { storage } from "./storage";
 import { authService } from "./auth";
 import {
-  authenticate,
+  authenticateToken,
   requireRole,
   optionalAuth,
-  validateRequest,
-  rateLimiter,
-  errorHandler,
-} from "./middleware";
+} from "./middleware/auth";
+import { rateLimiter, errorHandler } from "./middleware";
+import { validateBody } from "./middleware/validation";
+import {
+  insertPlaylistSchema,
+  insertAlbumSchema,
+  insertEventSchema,
+  insertProductSchema,
+  insertBlogSchema,
+  InsertBlogComment,
+} from "@shared/schema";
 import { cloudinaryService } from "./services/cloudinary";
 import { emailService } from "./services/email";
 import { analyticsService } from "./services/analytics";
-import {
-  insertPlaylistSchema,
-} from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
-import cloudinary from 'cloudinary'; // Assuming cloudinary is imported from a module like 'cloudinary'
-
-// Configure Cloudinary (replace with your actual credentials or environment variable loading)
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import cloudinary from "cloudinary";
 
 
 // ------------------------ Config ------------------------
@@ -44,7 +42,7 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
-// Validation schemas
+// ------------------------ Validation Schemas ------------------------
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -59,41 +57,51 @@ const registerSchema = z.object({
 
 const searchSchema = z.object({
   q: z.string().min(1),
-  type: z.enum(["all", "songs", "artists", "events", "products"]).optional(),
+  type: z.enum(["all", "songs", "artists", "albums", "playlists", "events", "products", "blogs"]).optional(),
   limit: z.coerce.number().min(1).max(100).optional(),
 });
 
+// ------------------------ ROUTES ------------------------
+
 export function setupRoutes(app: Express): void {
+
   // ------------------------ Rate limiting ------------------------
-  // In dev, skip rate limiting entirely.
   if (isProd) {
     const skipPaths = new Set<string>(["/api/auth/me", "/me"]);
     app.use("/api/auth", (req, res, next) => {
       const p = req.originalUrl || req.url;
       if (skipPaths.has(p)) return next();
-      return rateLimiter(15 * 60 * 1000, 50)(req, res, next); // 50 / 15min for auth
+      return rateLimiter(15 * 60 * 1000, 50)(req, res, next);
     });
     app.use("/api", (req, res, next) => {
       const p = req.originalUrl || req.url;
       if (skipPaths.has(p)) return next();
-      return rateLimiter(60 * 1000, 300)(req, res, next); // 300 / min for API
+      return rateLimiter(60 * 1000, 300)(req, res, next);
     });
   }
 
   // ============================================================================
   // AUTH ROUTES
   // ============================================================================
-
-  app.post("/api/auth/register", validateRequest(registerSchema), async (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     try {
-      const { email, password, name, role = "fan" } = req.body;
+      const validation = registerSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validation.error.errors,
+        });
+      }
+      const { email, password, name, role = "fan" } = validation.data;
       const { user, token } = await authService.register(email, password, name, role);
 
-      // Welcome + analytics
-      await emailService.sendWelcomeEmail(user.email, user.name, user.role);
-      await analyticsService.trackSignup(user.role, user.id);
+      try {
+        await emailService.sendWelcomeEmail(user.email, user.name, user.role);
+        await analyticsService.trackSignup(user.role, user.id);
+      } catch (err) {
+        console.warn("Email/Analytics service failed:", err);
+      }
 
-      // Set HttpOnly cookie so FE fetches with credentials: "include" work
       res.cookie(JWT_COOKIE_NAME, token, cookieOpts);
       res.status(201).json({ user, token });
     } catch (error: any) {
@@ -101,12 +109,23 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/auth/login", validateRequest(loginSchema), async (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const validation = loginSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validation.error.errors,
+        });
+      }
+      const { email, password } = validation.data;
       const { user, token } = await authService.login(email, password);
 
-      await analyticsService.trackLogin(user.id);
+      try {
+        await analyticsService.trackLogin(user.id, "/login");
+      } catch (err) {
+        console.warn("Analytics tracking failed:", err);
+      }
 
       res.cookie(JWT_COOKIE_NAME, token, cookieOpts);
       res.json({ user, token });
@@ -115,14 +134,12 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  // "Who am I" — optional auth so unauthenticated users get 401 (frontend treats as null)
   app.get("/api/auth/me", optionalAuth, (req: any, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     const { id, email, role, name, status, isVerified, lastActive } = req.user;
     res.json({ id, email, role, name, status, isVerified, lastActive });
   });
 
-  // Backward-compat alias (same response, no redirect)
   app.get("/me", optionalAuth, (req: any, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
     const { id, email, role, name, status, isVerified, lastActive } = req.user;
@@ -137,37 +154,39 @@ export function setupRoutes(app: Express): void {
   // ============================================================================
   // USER ROUTES
   // ============================================================================
-
-  app.get("/api/user", authenticate, async (req: any, res) => {
+  app.get("/api/user", authenticateToken, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user) return res.status(404).json({ message: "User not found" });
-
-      const artist = user.role === "artist" ? await storage.getArtistByUserId(user.id) : null;
+      const artist =
+        user.role === "artist"
+          ? await storage.getArtistByUserId(user.id)
+          : null;
       res.json({ ...user, artist });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.get("/api/user/settings", authenticate, async (req: any, res) => {
+  app.get("/api/user/settings", authenticateToken, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user) return res.status(404).json({ message: "User not found" });
-
       res.json({
         profile: {
           name: user.name,
-          bio: user.bio || '',
-          location: user.location || '',
-          dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().split('T')[0] : '',
+          bio: user.bio || "",
+          location: user.location || "",
+          dateOfBirth: user.dateOfBirth
+            ? user.dateOfBirth.toISOString().split("T")[0]
+            : "",
           genres: user.genres || [],
           socialLinks: user.socialLinks || {
-            instagram: '',
-            twitter: '',
-            youtube: '',
-            spotify: '',
-            website: '',
+            instagram: "",
+            twitter: "",
+            youtube: "",
+            spotify: "",
+            website: "",
           },
         },
         privacy: user.settings?.privacy || {
@@ -181,7 +200,7 @@ export function setupRoutes(app: Express): void {
         },
         adPreferences: user.settings?.adPreferences || {
           personalizedAds: true,
-          frequency: 'normal',
+          frequency: "normal",
         },
       });
     } catch (error: any) {
@@ -189,22 +208,22 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/user/settings", authenticate, async (req: any, res) => {
+  app.put("/api/user/settings", authenticateToken, async (req: any, res) => {
     try {
       const { privacy, notifications, adPreferences } = req.body;
-
       const updates: any = {};
-      if (privacy) updates['settings.privacy'] = privacy;
+      if (privacy) updates["settings.privacy"] = privacy;
       if (notifications) {
         if (notifications.emailNotifications !== undefined) {
-          updates['settings.emailNotifications'] = notifications.emailNotifications;
+          updates["settings.emailNotifications"] =
+            notifications.emailNotifications;
         }
         if (notifications.pushNotifications !== undefined) {
-          updates['settings.pushNotifications'] = notifications.pushNotifications;
+          updates["settings.pushNotifications"] =
+            notifications.pushNotifications;
         }
       }
-      if (adPreferences) updates['settings.adPreferences'] = adPreferences;
-
+      if (adPreferences) updates["settings.adPreferences"] = adPreferences;
       await storage.updateUser(req.user.id, updates);
       res.json({ message: "Settings updated successfully" });
     } catch (error: any) {
@@ -212,58 +231,52 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/user/profile", authenticate, upload.single('avatar'), async (req: any, res) => {
+  app.put("/api/user/profile", authenticateToken, upload.single("avatar"), async (req: any, res) => {
     try {
-      const profileData = JSON.parse(req.body.profileData || '{}');
       const updates: any = {};
 
-      if (profileData.name) updates.name = profileData.name;
-      if (profileData.bio !== undefined) updates.bio = profileData.bio;
-      if (profileData.location !== undefined) updates.location = profileData.location;
-      if (profileData.dateOfBirth) updates.dateOfBirth = new Date(profileData.dateOfBirth);
-      if (profileData.genres) updates.genres = profileData.genres;
-      if (profileData.socialLinks) updates.socialLinks = profileData.socialLinks;
+      // Collect text fields from form-data
+      if (req.body.name) updates.name = req.body.name;
+      if (req.body.bio) updates.bio = req.body.bio;
+      if (req.body.location) updates.location = req.body.location;
+      if (req.body.website) updates["socialLinks.website"] = req.body.website;
 
       // Handle avatar upload
       if (req.file) {
-        try {
-          const uploadResult = await cloudinary.uploader.upload(
-            `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
-            {
-              folder: 'avatars',
-              public_id: `avatar_${req.user.id}`,
-              transformation: [
-                { width: 300, height: 300, crop: 'fill', gravity: 'face' }
-              ]
-            }
-          );
-          updates.avatar = uploadResult.secure_url;
-        } catch (uploadError) {
-          console.error('Avatar upload failed:', uploadError);
-        }
+        const base64Data = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+        const uploadResult = await cloudinaryService.uploadImage(req.file.buffer, req.file.mimetype, {
+          folder: "avatars",
+          public_id: `avatar_${req.user.id}`,
+          transformation: [{ width: 300, height: 300, crop: "fill", gravity: "face" }],
+        });
+
+        updates.avatar = uploadResult.secure_url;
       }
 
-      await storage.updateUser(req.user.id, updates);
-      res.json({ message: "Profile updated successfully" });
+      // Update DB
+      const updatedUser = await storage.updateUser(req.user.id, updates);
+      res.json({ message: "Profile updated successfully", user: updatedUser });
     } catch (error: any) {
+      console.error("Profile update error:", error);
       res.status(500).json({ message: error.message });
     }
   });
 
-
-  app.get("/api/users/profile", authenticate, async (req: any, res) => {
+  app.get("/api/users/profile", authenticateToken, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user) return res.status(404).json({ message: "User not found" });
-
-      const artist = user.role === "artist" ? await storage.getArtistByUserId(user.id) : null;
+      const artist =
+        user.role === "artist"
+          ? await storage.getArtistByUserId(user.id)
+          : null;
       res.json({ user, artist });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.patch("/api/users/profile", authenticate, async (req: any, res) => {
+  app.patch("/api/users/profile", authenticateToken, async (req: any, res) => {
     try {
       const updatedUser = await storage.updateUser(req.user.id, req.body);
       res.json(updatedUser);
@@ -272,7 +285,7 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/users/notifications", authenticate, async (req: any, res) => {
+  app.get("/api/users/notifications", authenticateToken, async (req: any, res) => {
     try {
       const notifications = await storage.getNotificationsByUser(req.user.id);
       res.json(notifications);
@@ -281,78 +294,34 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/users/notifications/:id/read", authenticate, async (req: any, res) => {
-    try {
-      await storage.markNotificationAsRead(req.params.id);
-      res.json({ message: "Notification marked as read" });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
+  app.patch(
+    "/api/users/notifications/:id/read",
+    authenticateToken,
+    async (req: any, res) => {
+      try {
+        await storage.markNotificationAsRead(req.params.id);
+        res.json({ message: "Notification marked as read" });
+      } catch (error: any) {
+        res.status(500).json({ message: error.message });
+      }
     }
-  });
+  );
 
   // ============================================================================
-  // ARTIST ROUTES
+  // SONG ROUTES (Songs + Likes + Follows Integrated)
   // ============================================================================
-
-  app.get("/api/artists", optionalAuth, async (req: any, res) => {
+  // ---------------- UPLOAD SONG ----------------
+app.post(
+  "/api/songs/upload",
+  authenticateToken,
+  upload.fields([
+    { name: "audioFile", maxCount: 1 },
+    { name: "artworkFile", maxCount: 1 },
+  ]),
+  async (req: any, res) => {
     try {
-      const featured = String(req.query.featured || "false") === "true";
-      const limit = featured ? 12 : 50;
-      const artists = await storage.getFeaturedArtists(limit);
-      res.json(artists);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/artists/:id", optionalAuth, async (req: any, res) => {
-    try {
-      const artist = await storage.getArtist(req.params.id);
-      if (!artist) return res.status(404).json({ message: "Artist not found" });
-
-      const [songs, products, events] = await Promise.all([
-        storage.getSongsByArtist(req.params.id, 20),
-        storage.getProductsByArtist(req.params.id),
-        storage.getEventsByArtist(req.params.id),
-      ]);
-
-      const isFollowing = req.user ? await storage.isFollowing(req.user.id, req.params.id) : false;
-
-      res.json({ artist, songs, products, events, isFollowing });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/artists/:id/follow", authenticate, async (req: any, res) => {
-    try {
-      await storage.followArtist(req.user.id, req.params.id);
-      await analyticsService.trackFollow(req.params.id, req.user.id);
-      res.json({ message: "Artist followed successfully" });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.delete("/api/artists/:id/follow", authenticate, async (req: any, res) => {
-    try {
-      await storage.unfollowArtist(req.user.id, req.params.id);
-      res.json({ message: "Artist unfollowed successfully" });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // SONG ROUTES
-  // ============================================================================
-
-  app.post("/api/songs/upload", authenticate, upload.fields([
-    { name: 'audioFile', maxCount: 1 },
-    { name: 'artworkFile', maxCount: 1 }
-  ]), async (req: any, res) => {
-    try {
-      if (req.user.role !== 'artist') {
+      // Only artists can upload
+      if (req.user.role !== "artist") {
         return res.status(403).json({ message: "Only artists can upload music" });
       }
 
@@ -361,45 +330,80 @@ export function setupRoutes(app: Express): void {
         return res.status(404).json({ message: "Artist profile not found" });
       }
 
+      // Extract files
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      const audioFile = files.audioFile?.[0];
-      const artworkFile = files.artworkFile?.[0];
+      const audioFile = files?.audioFile?.[0];
+      const artworkFile = files?.artworkFile?.[0];
 
       if (!audioFile) {
         return res.status(400).json({ message: "Audio file is required" });
       }
-
-      const songData = JSON.parse(req.body.songData);
-
-      // Upload audio file to Cloudinary
-      const audioUpload = await cloudinary.uploader.upload(
-        `data:${audioFile.mimetype};base64,${audioFile.buffer.toString('base64')}`,
-        {
-          resource_type: 'video',
-          folder: 'music',
-          public_id: `song_${Date.now()}`,
-        }
-      );
-
-      let artworkUpload = null;
-      if (artworkFile) {
-        artworkUpload = await cloudinary.uploader.upload(
-          `data:${artworkFile.mimetype};base64,${artworkFile.buffer.toString('base64')}`,
-          {
-            folder: 'artwork',
-            public_id: `artwork_${Date.now()}`,
-            transformation: [{ width: 1000, height: 1000, crop: 'fill' }]
-          }
-        );
+      if (!req.body.songData) {
+        return res.status(400).json({ message: "Song metadata is required" });
       }
 
+      let songData;
+      try {
+        songData = JSON.parse(req.body.songData);
+      } catch {
+        return res.status(400).json({ message: "Invalid songData JSON" });
+      }
+
+      // ---------------- Upload Audio ----------------
+      let audioUpload;
+      try {
+        audioUpload = await cloudinaryService.uploadAudio(
+          audioFile.buffer,
+          audioFile.mimetype,
+          {
+            folder: "ruc/music",
+            public_id: `song_${Date.now()}`,
+          }
+        );
+      } catch (err: any) {
+        console.error("Cloudinary audio upload error:", err);
+        return res.status(500).json({
+          message: "Failed to upload audio to Cloudinary",
+          error:
+            process.env.NODE_ENV === "development"
+              ? err?.message || err?.error || JSON.stringify(err)
+              : "Internal server error",
+        });
+      }
+
+      // ---------------- Upload Artwork ----------------
+      let artworkUpload = null;
+      if (artworkFile) {
+        try {
+          artworkUpload = await cloudinaryService.uploadArtwork(
+            artworkFile.buffer,
+            artworkFile.mimetype,
+            {
+              folder: "ruc/artwork",
+              public_id: `artwork_${Date.now()}`,
+              transformation: [{ width: 1000, height: 1000, crop: "fill" }],
+            }
+          );
+        } catch (err: any) {
+          console.error("Cloudinary artwork upload error:", err);
+          return res.status(500).json({
+            message: "Failed to upload artwork to Cloudinary",
+            error:
+              process.env.NODE_ENV === "development"
+                ? err?.message || err?.error || JSON.stringify(err)
+                : "Internal server error",
+          });
+        }
+      }
+
+      // ---------------- Create Song in DB ----------------
       const newSong = await storage.createSong({
         title: songData.title,
         artistId: artist._id,
         genre: songData.genre,
         subGenres: songData.subGenres || [],
         duration: songData.duration,
-        releaseDate: new Date(songData.releaseDate),
+        releaseDate: songData.releaseDate ? new Date(songData.releaseDate) : new Date(),
         files: {
           audioUrl: audioUpload.secure_url,
           audioFileId: audioUpload.public_id,
@@ -407,46 +411,51 @@ export function setupRoutes(app: Express): void {
           artworkFileId: artworkUpload?.public_id,
         },
         metadata: songData.metadata || {},
-        visibility: songData.visibility || 'public',
+        visibility: songData.visibility || "public",
         monetization: songData.monetization || {
           isMonetized: false,
           adEnabled: true,
         },
-        analytics: {
-          playCount: 0,
-          uniqueListeners: 0,
-          likeCount: 0,
-          shareCount: 0,
-          downloadCount: 0,
-          trendingScore: 0,
-          playHistory: [],
-        },
       });
 
-      res.status(201).json(newSong);
+      return res.status(201).json(newSong);
     } catch (error: any) {
-      console.error('Song upload error:', error);
-      res.status(500).json({ message: error.message });
+      console.error("Song upload error:", error);
+      return res.status(500).json({
+        message: "Unexpected error during song upload",
+        error:
+          process.env.NODE_ENV === "development"
+            ? error.message
+            : "Internal server error",
+      });
     }
-  });
+  }
+);
 
-  app.get("/api/artists/my-music", authenticate, async (req: any, res) => {
+
+  // ---------------- ARTIST MUSIC DASHBOARD ----------------
+  app.get("/api/artists/my-music", authenticateToken, async (req: any, res) => {
     try {
-      if (req.user.role !== 'artist') {
+      if (req.user.role !== "artist") {
         return res.status(403).json({ message: "Artist access required" });
       }
-
       const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) {
-        return res.status(404).json({ message: "Artist profile not found" });
-      }
+      if (!artist) return res.status(404).json({ message: "Artist profile not found" });
 
-      const songs = await storage.getSongsByArtist(artist._id); // Assuming getSongsByArtist returns all songs for an artist
+      const songs = await storage.getSongsByArtist(artist._id);
+
+      // Aggregated stats via analytics
+      const totalPlays = (await analyticsService.getPopularContent("songs"))
+        .filter((s) => songs.find((song) => song._id.toString() === s.id))
+        .reduce((sum, s) => sum + s.count, 0);
+
+      const totalLikes = (await analyticsService.getUserEngagement(req.user.id))
+        .likeCount;
 
       const stats = {
         totalSongs: songs.length,
-        totalPlays: songs.reduce((sum, song) => sum + (song.analytics?.playCount || 0), 0),
-        totalLikes: songs.reduce((sum, song) => sum + (song.analytics?.likeCount || 0), 0),
+        totalPlays,
+        totalLikes,
         monthlyListeners: artist.stats?.monthlyListeners || 0,
       };
 
@@ -456,7 +465,7 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-
+  // ---------------- FETCH SONGS ----------------
   app.get("/api/songs", optionalAuth, async (req: any, res) => {
     try {
       const trending = String(req.query.trending || "false") === "true";
@@ -474,65 +483,96 @@ export function setupRoutes(app: Express): void {
     }
   });
 
+  // ---------------- FETCH SINGLE SONG ----------------
   app.get("/api/songs/:id", optionalAuth, async (req: any, res) => {
     try {
       const song = await storage.getSong(req.params.id);
       if (!song) return res.status(404).json({ message: "Song not found" });
 
-      const isLiked = req.user ? await storage.isLiked(req.user.id, req.params.id) : false;
+      const isLiked = req.user
+        ? await storage.isLiked(req.user.id, req.params.id)
+        : false;
+
       res.json({ song, isLiked });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-
-  app.put("/api/songs/:id", authenticate, async (req: any, res) => {
+  // ---------------- UPDATE SONG ----------------
+  app.put("/api/songs/:id", authenticateToken, async (req: any, res) => {
     try {
-      const song = await storage.getSong(req.params.id); // Use storage.getSong
-      if (!song) {
-        return res.status(404).json({ message: "Song not found" });
-      }
+      const song = await storage.getSong(req.params.id);
+      if (!song) return res.status(404).json({ message: "Song not found" });
 
-      // Check if user owns this song
       const artist = await storage.getArtistByUserId(req.user.id);
       if (!artist || song.artistId.toString() !== artist._id.toString()) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const updates = req.body;
-      const updatedSong = await storage.updateSong(req.params.id, updates); // Use storage.updateSong
-
+      const updatedSong = await storage.updateSong(req.params.id, req.body);
       res.json(updatedSong);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.delete("/api/songs/:id", authenticate, async (req: any, res) => {
+  // ---------------- DELETE SONG ----------------
+  app.delete("/api/songs/:id", authenticateToken, async (req: any, res) => {
     try {
-      const song = await storage.getSong(req.params.id); // Use storage.getSong
-      if (!song) {
-        return res.status(404).json({ message: "Song not found" });
-      }
+      const song = await storage.getSong(req.params.id);
+      if (!song) return res.status(404).json({ message: "Song not found" });
 
-      // Check if user owns this song
       const artist = await storage.getArtistByUserId(req.user.id);
       if (!artist || song.artistId.toString() !== artist._id.toString()) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Delete files from Cloudinary
-      if (song.files?.audioFileId) {
-        await cloudinaryService.deleteAudio(song.files.audioFileId); // Use cloudinaryService
-      }
-      if (song.files?.artworkFileId) {
-        await cloudinaryService.deleteArtwork(song.files.artworkFileId); // Use cloudinaryService
-      }
+      if (song.files?.audioFileId) await cloudinaryService.deleteAudio(song.files.audioFileId);
+      if (song.files?.artworkFileId) await cloudinaryService.deleteArtwork(song.files.artworkFileId);
 
-      await storage.deleteSong(req.params.id); // Use storage.deleteSong
-
+      await storage.deleteSong(req.params.id);
       res.json({ message: "Song deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ---------------- LIKE SONG ----------------
+  app.post("/api/songs/:id/like", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.likeSong(req.user.id, req.params.id);
+      await analyticsService.trackLike(req.params.id, req.user.id);
+      res.json({ liked: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/songs/:id/like", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.unlikeSong(req.user.id, req.params.id);
+      res.json({ liked: false });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ---------------- FOLLOW ARTIST ----------------
+  app.post("/api/artists/:id/follow", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.followArtist(req.user.id, req.params.id);
+      await analyticsService.trackFollow(req.params.id, req.user.id);
+      res.json({ following: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/artists/:id/follow", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.unfollowArtist(req.user.id, req.params.id);
+      res.json({ following: false });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -541,8 +581,7 @@ export function setupRoutes(app: Express): void {
   // ============================================================================
   // PLAYLIST ROUTES
   // ============================================================================
-
-  app.get("/api/playlists/me", authenticate, async (req: any, res) => {
+  app.get("/api/playlists/me", authenticateToken, async (req: any, res) => {
     try {
       const playlists = await storage.getPlaylistsByUser(req.user.id);
       res.json(playlists);
@@ -551,24 +590,915 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/playlists", authenticate, validateRequest(insertPlaylistSchema), async (req: any, res) => {
-    try {
-      const playlist = await storage.createPlaylist({ ...req.body, ownerId: req.user.id });
-      res.json(playlist);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
+  app.post(
+    "/api/playlists",
+    authenticateToken,
+    validateBody(insertPlaylistSchema),
+    async (req: any, res) => {
+      try {
+        const playlist = await storage.createPlaylist({
+          ...req.body,
+          ownerId: req.user.id,
+        });
+        res.json(playlist);
+      } catch (error: any) {
+        res.status(500).json({ message: error.message });
+      }
     }
-  });
+  );
 
   app.get("/api/playlists/:id", optionalAuth, async (req: any, res) => {
     try {
       const playlist = await storage.getPlaylist(req.params.id);
       if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-      if (!playlist.isPublic && (!req.user || playlist.ownerId !== req.user.id)) {
+      if (!playlist.isPublic && (!req.user || playlist.ownerId.toString() !== req.user.id.toString())) {
         return res.status(403).json({ message: "Access denied" });
       }
+
+      // track view if authenticated
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_playlist",
+          "playlist",
+          { playlistId: playlist._id },
+          req.user.id
+        );
+      }
+
       res.json(playlist);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/playlists/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const playlist = await storage.getPlaylist(req.params.id);
+      if (!playlist) return res.status(404).json({ message: "Playlist not found" });
+      if (playlist.ownerId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updatePlaylist(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/playlists/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const playlist = await storage.getPlaylist(req.params.id);
+      if (!playlist) return res.status(404).json({ message: "Playlist not found" });
+      if (playlist.ownerId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      await storage.deletePlaylist(req.params.id);
+      res.json({ message: "Playlist deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ALBUM ROUTES
+  // ============================================================================
+  app.get("/api/albums/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const album = await storage.getAlbum(req.params.id);
+      if (!album) return res.status(404).json({ message: "Album not found" });
+
+      // track view if user logged in
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_album",
+          "album",
+          { albumId: album._id },
+          req.user.id
+        );
+      }
+
+      res.json(album);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/artists/:id/albums", optionalAuth, async (req: any, res) => {
+    try {
+      const albums = await storage.getAlbumsByArtist(req.params.id);
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "browse_albums",
+          "album",
+          { artistId: req.params.id },
+          req.user.id
+        );
+      }
+
+      res.json(albums);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/albums", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
+
+      const album = await storage.createAlbum({ ...req.body, artistId: artist._id });
+
+      await analyticsService.trackEventGeneric(
+        "create_album",
+        "album",
+        { albumId: album._id },
+        req.user.id
+      );
+
+      res.json(album);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/albums/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const album = await storage.getAlbum(req.params.id);
+      if (!album) return res.status(404).json({ message: "Album not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || album.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateAlbum(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/albums/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const album = await storage.getAlbum(req.params.id);
+      if (!album) return res.status(404).json({ message: "Album not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || album.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteAlbum(req.params.id);
+
+      await analyticsService.trackEventGeneric(
+        "delete_album",
+        "album",
+        { albumId: req.params.id },
+        req.user.id
+      );
+
+      res.json({ message: "Album deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+
+  // ============================================================================
+  // EVENT ROUTES
+  // ============================================================================
+  app.get("/api/events", optionalAuth, async (req: any, res) => {
+    try {
+      const upcoming = String(req.query.upcoming || "false") === "true";
+      const artistId = req.query.artistId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
+
+      let events;
+      if (upcoming) events = await storage.getUpcomingEvents(limit);
+      else if (artistId) events = await storage.getEventsByArtist(artistId);
+      else events = await storage.getUpcomingEvents(limit);
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "browse_events",
+          "event",
+          { upcoming, artistId },
+          req.user.id
+        );
+      }
+
+      res.json(events);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/events/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const event = await storage.getEvent(req.params.id);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_event",
+          "event",
+          { eventId: event._id },
+          req.user.id
+        );
+      }
+
+      res.json(event);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/events", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
+
+      const event = await storage.createEvent({ ...req.body, artistId: artist._id });
+
+      await analyticsService.trackEventGeneric(
+        "create_event",
+        "event",
+        { eventId: event._id },
+        req.user.id
+      );
+
+      res.json(event);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/events/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const event = await storage.getEvent(req.params.id);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || event.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateEvent(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/events/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const event = await storage.getEvent(req.params.id);
+      if (!event) return res.status(404).json({ message: "Event not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || event.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteEvent(req.params.id);
+
+      await analyticsService.trackEventGeneric(
+        "delete_event",
+        "event",
+        { eventId: req.params.id },
+        req.user.id
+      );
+
+      res.json({ message: "Event deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // PRODUCT ROUTES
+  // ============================================================================
+  app.get("/api/products", optionalAuth, async (req: any, res) => {
+    try {
+      const artistId = req.query.artistId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
+
+      const products = artistId
+        ? await storage.getProductsByArtist(artistId)
+        : await storage.searchProducts("", limit);
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "browse_products",
+          "product",
+          { artistId },
+          req.user.id
+        );
+      }
+
+      res.json(products.slice(0, limit));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/products/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const product = await storage.getProduct(req.params.id);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_product",
+          "product",
+          { productId: product._id },
+          req.user.id
+        );
+      }
+
+      res.json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post(
+  "/api/products",
+  authenticateToken,
+  requireRole(["artist"]),
+  upload.array("images", 5),
+  async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
+
+      const files = (req.files as Express.Multer.File[]) || [];
+      const images: string[] = [];
+
+      for (const file of files) {
+        const upload = await cloudinaryService.uploadImage(
+          file.buffer,
+          file.mimetype,
+          { folder: "ruc/products" }
+        );
+        images.push(upload.secure_url);
+      }
+
+      const product = await storage.createProduct({
+        ...req.body,
+        artistId: artist._id,
+        images,
+        mainImage: images[0] || null,
+      });
+
+      await analyticsService.trackEventGeneric(
+        "create_product",
+        "product",
+        { productId: product._id },
+        req.user.id
+      );
+
+      res.json(product);
+    } catch (error: any) {
+      console.error("Product upload error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  }
+);
+
+  app.put("/api/products/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const product = await storage.getProduct(req.params.id);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || product.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateProduct(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/products/:id", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const product = await storage.getProduct(req.params.id);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || product.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteProduct(req.params.id);
+
+      await analyticsService.trackEventGeneric(
+        "delete_product",
+        "product",
+        { productId: req.params.id },
+        req.user.id
+      );
+
+      res.json({ message: "Product deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+
+  // ============================================================================
+  // ORDER ROUTES
+  // ============================================================================
+  app.post("/api/orders", authenticateToken, async (req: any, res) => {
+    try {
+      const order = await storage.createOrder({
+        ...req.body,
+        buyerId: req.user.id,
+        orderNumber: `RUC-${Date.now()}-${Math.random().toString(36).slice(2, 11).toUpperCase()}`,
+      });
+
+      // send confirmation + analytics
+      if (req.user.email) {
+        await emailService.sendOrderConfirmationEmail(req.user.email, order);
+      }
+
+      await analyticsService.trackPurchase(
+        order._id.toString(),
+        order.totals?.total ?? 0,
+        req.user.id
+      );
+
+      res.json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/orders/me", authenticateToken, async (req: any, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user.id);
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/orders/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.buyerId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/orders/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const order = await storage.getOrder(req.params.id);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      if (order.buyerId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const updated = await storage.updateOrder(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SUBSCRIPTION ROUTES
+  // ============================================================================
+  app.get("/api/subscriptions/me", authenticateToken, async (req: any, res) => {
+    try {
+      const subscriptions = await storage.getSubscriptionsByFan(req.user.id);
+      res.json(subscriptions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/subscriptions", authenticateToken, async (req: any, res) => {
+    try {
+      const subscription = await storage.createSubscription({
+        ...req.body,
+        fanId: req.user.id,
+      });
+
+      await analyticsService.trackSubscribe(
+        subscription.artistId.toString(),
+        subscription.tier?.name ?? "default",
+        req.user.id
+      );
+
+      res.json(subscription);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/subscriptions/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const sub = await storage.updateSubscription(req.params.id, req.body);
+      if (!sub) return res.status(404).json({ message: "Subscription not found" });
+      res.json(sub);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/subscriptions/:id", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.cancelSubscription(req.params.id);
+
+      await analyticsService.trackEventGeneric(
+        "cancel_subscription",
+        "subscription",
+        { subscriptionId: req.params.id },
+        req.user.id
+      );
+
+      res.json({ message: "Subscription cancelled successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // BLOG ROUTES
+  // ============================================================================
+  app.get("/api/blogs", optionalAuth, async (req: any, res) => {
+    try {
+      const authorId = req.query.authorId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
+
+      let blogs;
+      if (authorId) blogs = await storage.getBlogsByAuthor(authorId);
+      else blogs = await storage.getPublishedBlogs(limit);
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "browse_blogs",
+          "blog",
+          { authorId },
+          req.user.id
+        );
+      }
+
+      res.json(blogs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/blogs/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const blog = await storage.getBlog(req.params.id);
+      if (!blog) return res.status(404).json({ message: "Blog not found" });
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_blog",
+          "blog",
+          { blogId: blog._id },
+          req.user.id
+        );
+      }
+
+      res.json(blog);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/blogs", authenticateToken, async (req: any, res) => {
+    try {
+      const blog = await storage.createBlog({ ...req.body, authorId: req.user.id });
+
+      await analyticsService.trackEventGeneric(
+        "create_blog",
+        "blog",
+        { blogId: blog._id },
+        req.user.id
+      );
+
+      res.json(blog);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/blogs/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const blog = await storage.getBlog(req.params.id);
+      if (!blog) return res.status(404).json({ message: "Blog not found" });
+      if (blog.authorId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const updated = await storage.updateBlog(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/blogs/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const blog = await storage.getBlog(req.params.id);
+      if (!blog) return res.status(404).json({ message: "Blog not found" });
+      if (blog.authorId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteBlog(req.params.id);
+
+      await analyticsService.trackEventGeneric(
+        "delete_blog",
+        "blog",
+        { blogId: req.params.id },
+        req.user.id
+      );
+
+      res.json({ message: "Blog deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // BLOG COMMENT ROUTES
+  // ============================================================================
+  app.get("/api/blogs/:id/comments", optionalAuth, async (req: any, res) => {
+    try {
+      const comments = await storage.getBlogCommentsByBlog(req.params.id);
+      res.json(comments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/blogs/:id/comments", authenticateToken, async (req: any, res) => {
+    try {
+      const comment = await storage.createBlogComment({
+        ...req.body,
+        blogId: req.params.id,
+        authorId: req.user.id,
+      });
+
+      await analyticsService.trackEventGeneric("create_comment", "blog", {
+        blogId: req.params.id,
+        commentId: comment._id,
+      }, req.user.id);
+
+      res.json(comment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/comments/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const comment = await storage.getBlogComment(req.params.id);
+      if (!comment) return res.status(404).json({ message: "Comment not found" });
+      if (comment.authorId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const updated = await storage.updateBlogComment(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/comments/:id", authenticateToken, async (req: any, res) => {
+    try {
+      const comment = await storage.getBlogComment(req.params.id);
+      if (!comment) return res.status(404).json({ message: "Comment not found" });
+      if (comment.authorId.toString() !== req.user.id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteBlogComment(req.params.id);
+
+      await analyticsService.trackEventGeneric("delete_comment", "blog", {
+        commentId: req.params.id,
+      }, req.user.id);
+
+      res.json({ message: "Comment deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // REPORT ROUTES
+  // ============================================================================
+  app.get("/api/reports", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const reports = await storage.getReports(status);
+      res.json(reports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/:id", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const report = await storage.getReport(req.params.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/reports", authenticateToken, async (req: any, res) => {
+    try {
+      const report = await storage.createReport({
+        ...req.body,
+        reporterId: req.user.id,
+      });
+
+      await analyticsService.trackEventGeneric("create_report", "report", {
+        reportId: report._id,
+      }, req.user.id);
+
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/reports/:id", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const updated = await storage.updateReport(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ message: "Report not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // AD ROUTES
+  // ============================================================================
+  app.get("/api/ads", optionalAuth, async (_req: any, res) => {
+    try {
+      const ads = await storage.getActiveAds();
+      res.json(ads);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/ads/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const ad = await storage.getAd(req.params.id);
+      if (!ad) return res.status(404).json({ message: "Ad not found" });
+      res.json(ad);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/ads", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const ad = await storage.createAd(req.body);
+      res.json(ad);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/ads/:id", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const updated = await storage.updateAd(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ message: "Ad not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/ads/:id", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      await storage.deleteAd(req.params.id);
+      res.json({ message: "Ad deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // FOLLOW ROUTES
+  // ============================================================================
+  app.get("/api/users/:id/following", authenticateToken, async (req: any, res) => {
+    try {
+      const artists = await storage.getFollowedArtists(req.params.id);
+      res.json(artists);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/artists/:id/follow", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.followArtist(req.user.id, req.params.id);
+      await analyticsService.trackFollow(req.params.id, req.user.id);
+      res.json({ message: "Artist followed successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/artists/:id/follow", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.unfollowArtist(req.user.id, req.params.id);
+
+      await analyticsService.trackEventGeneric("unfollow", "social", {
+        artistId: req.params.id,
+      }, req.user.id);
+
+      res.json({ message: "Artist unfollowed successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // LIKE ROUTES
+  // ============================================================================
+  app.get("/api/users/:id/likes", authenticateToken, async (req: any, res) => {
+    try {
+      const songs = await storage.getLikedSongs(req.params.id);
+      res.json(songs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/songs/:id/like", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.likeSong(req.user.id, req.params.id);
+      await analyticsService.trackLike(req.params.id, req.user.id);
+      res.json({ message: "Song liked" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/songs/:id/like", authenticateToken, async (req: any, res) => {
+    try {
+      await storage.unlikeSong(req.user.id, req.params.id);
+
+      await analyticsService.trackEventGeneric("unlike", "engagement", {
+        songId: req.params.id,
+      }, req.user.id);
+
+      res.json({ message: "Song unliked" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ANALYTICS ROUTES
+  // ============================================================================
+  app.post("/api/analytics", optionalAuth, async (req: any, res) => {
+    try {
+      const record = await storage.trackEvent({
+        ...req.body,
+        userId: req.user?.id,
+        timestamp: new Date(),
+      });
+      res.json(record);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/analytics", authenticateToken, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const { userId, eventType, startDate, endDate } = req.query;
+      const filters: any = {};
+      if (userId) filters.userId = userId;
+      if (eventType) filters.eventType = eventType;
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+
+      const records = await storage.getAnalytics(filters);
+      res.json(records);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -577,14 +1507,21 @@ export function setupRoutes(app: Express): void {
   // ============================================================================
   // SEARCH ROUTES
   // ============================================================================
-
-  app.get("/api/search", optionalAuth, validateRequest(searchSchema), async (req: any, res) => {
+  app.get("/api/search", optionalAuth, async (req: any, res) => {
     try {
-      const q = String(req.query.q);
-      const type = (req.query.type as string) || "all";
-      const limit = Number(req.query.limit ?? 20);
+      const validation = searchSchema.safeParse(req.query);
+      if (!validation.success) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validation.error.errors,
+        });
+      }
 
-      await analyticsService.trackSearch(q, 0, req.user?.id);
+      const { q, type = "all", limit = 20 } = validation.data;
+
+      if (req.user) {
+        await analyticsService.trackSearch(q, 0, req.user.id);
+      }
 
       const results: any = {};
       if (type === "all" || type === "songs") results.songs = await storage.searchSongs(q, limit);
@@ -599,166 +1536,7 @@ export function setupRoutes(app: Express): void {
   });
 
   // ============================================================================
-  // EVENT ROUTES
+  // FINAL ERROR HANDLER
   // ============================================================================
-
-  app.get("/api/events", optionalAuth, async (req: any, res) => {
-    try {
-      const upcoming = String(req.query.upcoming || "false") === "true";
-      const artistId = req.query.artistId as string | undefined;
-      const limit = Number(req.query.limit ?? 20);
-
-      let events;
-      if (upcoming) events = await storage.getUpcomingEvents(limit);
-      else if (artistId) events = await storage.getEventsByArtist(artistId);
-      else events = await storage.getUpcomingEvents(limit);
-
-      res.json(events);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/events/:id", optionalAuth, async (req: any, res) => {
-    try {
-      const event = await storage.getEvent(req.params.id);
-      if (!event) return res.status(404).json({ message: "Event not found" });
-      res.json(event);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/events", authenticate, requireRole(["artist"]), async (req: any, res) => {
-    try {
-      const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
-
-      const event = await storage.createEvent({ ...req.body, artistId: artist.id });
-      res.json(event);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // PRODUCT ROUTES
-  // ============================================================================
-
-  app.get("/api/products", optionalAuth, async (req: any, res) => {
-    try {
-      const artistId = req.query.artistId as string | undefined;
-      const limit = Number(req.query.limit ?? 20);
-      const products = artistId ? await storage.getProductsByArtist(artistId) : await storage.getAllActiveProducts?.(limit) ?? [];
-      res.json(products);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/products/:id", optionalAuth, async (req: any, res) => {
-    try {
-      const product = await storage.getProduct(req.params.id);
-      if (!product) return res.status(404).json({ message: "Product not found" });
-      res.json(product);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/products", authenticate, requireRole(["artist"]), upload.array("images", 5), async (req: any, res) => {
-    try {
-      const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
-
-      const files = (req.files as Express.Multer.File[]) || [];
-      const images: string[] = [];
-
-      for (const file of files) {
-        const upload = await cloudinaryService.uploadImage(file.buffer, { folder: "ruc/products" });
-        images.push(upload.secure_url);
-      }
-
-      const product = await storage.createProduct({
-        ...req.body,
-        artistId: artist.id,
-        images,
-        mainImage: images[0] || null,
-      });
-      res.json(product);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // ORDER & PAYMENT ROUTES
-  // ============================================================================
-
-  app.post("/api/orders", authenticate, async (req: any, res) => {
-    try {
-      const order = await storage.createOrder({
-        ...req.body,
-        buyerId: req.user.id,
-        orderNumber: `RUC-${Date.now()}-${Math.random().toString(36).slice(2, 11).toUpperCase()}`,
-      });
-
-      await emailService.sendOrderConfirmationEmail(req.user.email, order);
-      await analyticsService.trackPurchase(order.id, order.totals.total, req.user.id);
-
-      res.json(order);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/orders/me", authenticate, async (req: any, res) => {
-    try {
-      const orders = await storage.getOrdersByUser(req.user.id);
-      res.json(orders);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // SUBSCRIPTION ROUTES
-  // ============================================================================
-
-  app.get("/api/subscriptions/me", authenticate, async (req: any, res) => {
-    try {
-      const subscriptions = await storage.getSubscriptionsByFan(req.user.id);
-      res.json(subscriptions);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/subscriptions", authenticate, async (req: any, res) => {
-    try {
-      const subscription = await storage.createSubscription({ ...req.body, fanId: req.user.id });
-      await analyticsService.trackSubscribe(subscription.artistId.toString(), subscription.tier.name, req.user.id);
-      res.json(subscription);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // FILE UPLOAD ROUTES
-  // ============================================================================
-
-  app.post("/api/upload/image", authenticate, upload.single("image"), async (req: any, res) => {
-    try {
-      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-
-      const upload = await cloudinaryService.uploadImage(req.file.buffer, { folder: "ruc/uploads" });
-      res.json({ url: upload.secure_url, publicId: upload.public_id });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ------------------------ Error handling ------------------------
   app.use(errorHandler);
 }

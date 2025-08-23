@@ -3,6 +3,7 @@ import { authService } from './auth';
 import type { User } from '@shared/schema';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -141,6 +142,7 @@ export const setupMiddleware = (app: Express) => {
   // Body parsing middleware
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  app.use(cookieParser());
 
   // Request logging
   app.use((req, res, next) => {
