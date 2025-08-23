@@ -94,7 +94,7 @@ export default function Sidebar() {
   );
 
   return (
-    <div className="hidden md:flex w-64 border-r border-border bg-card/50">
+    <div className="hidden md:flex w-64 border-r border-border bg-card/50 fixed left-0 top-16 h-[calc(100vh-4rem)] z-40">
       <div className="flex flex-col w-full">
         <ScrollArea className="flex-1 px-3 py-4">
           <div className="space-y-6">

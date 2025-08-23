@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -100,9 +101,11 @@ export default function ArtistDashboard() {
             Manage your music, track your performance, and grow your audience
           </p>
         </div>
-        <Button className="btn-primary" data-testid="upload-music-button">
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Music
+        <Button className="btn-primary" data-testid="upload-music-button" asChild>
+          <Link href="/upload">
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Music
+          </Link>
         </Button>
       </div>
 
@@ -226,9 +229,11 @@ export default function ArtistDashboard() {
         <TabsContent value="music" className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold">Your Music</h2>
-            <Button className="btn-primary">
-              <Upload className="w-4 h-4 mr-2" />
-              Upload New Song
+            <Button className="btn-primary" asChild>
+              <Link href="/upload">
+                <Upload className="w-4 h-4 mr-2" />
+                Upload New Song
+              </Link>
             </Button>
           </div>
 

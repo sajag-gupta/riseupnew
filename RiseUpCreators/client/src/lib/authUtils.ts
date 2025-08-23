@@ -3,15 +3,33 @@ export function isUnauthorizedError(error: Error): boolean {
 }
 
 export function getAuthToken(): string | null {
-  return localStorage.getItem('auth_token');
+  // Try localStorage first, then fallback to cookie
+  let token = localStorage.getItem('authToken');
+
+  if (!token) {
+    const cookies = document.cookie.split(';');
+    const tokenCookie = cookies.find(c => c.trim().startsWith('token='));
+    if (tokenCookie) {
+      token = tokenCookie.split('=')[1];
+      // Sync to localStorage if found in cookie
+      if (token) {
+        localStorage.setItem('authToken', token);
+      }
+    }
+  }
+
+  return token;
 }
 
 export function setAuthToken(token: string): void {
-  localStorage.setItem('auth_token', token);
+  localStorage.setItem('authToken', token);
+  // Also set as cookie for server-side requests
+  document.cookie = `token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`; // 7 days
 }
 
 export function removeAuthToken(): void {
-  localStorage.removeItem('auth_token');
+  localStorage.removeItem('authToken');
+  document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax';
 }
 
 export function isTokenExpired(token: string): boolean {

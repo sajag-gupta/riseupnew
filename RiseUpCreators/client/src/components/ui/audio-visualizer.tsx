@@ -8,7 +8,7 @@ interface AudioVisualizerProps {
   className?: string;
 }
 
-export default function AudioVisualizer({ 
+export function AudioVisualizer({ 
   isPlaying, 
   audioUrl, 
   height = 40, 

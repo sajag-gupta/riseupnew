@@ -1,43 +1,31 @@
+
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
+import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { apiRequest } from "@/lib/api";
+import { setAuthToken } from "@/lib/authUtils";
+import { useAuth } from "@/hooks/useAuth";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useAuthStore } from "@/store/authStore";
-import { Music, Eye, EyeOff, User, Users } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Music, Eye, EyeOff } from "lucide-react";
+import { Link } from "wouter";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
-  password: z
-    .string()
-    .min(6, "Password must be at least 6 characters")
-    .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      "Password must contain at least one uppercase letter, one lowercase letter, and one number"
-    ),
-  confirmPassword: z.string(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
   role: z.enum(["fan", "artist"], {
-    required_error: "Please select your role",
+    required_error: "Please select a role",
   }),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
 });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
@@ -45,12 +33,7 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 export default function Register() {
   const [, navigate] = useLocation();
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const { register: registerUser, isLoading, error, clearError } = useAuthStore();
-
-  // Get role from URL params if provided
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialRole = urlParams.get('role') as 'fan' | 'artist' | null;
+  const { refetch } = useAuth();
 
   const form = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -58,22 +41,25 @@ export default function Register() {
       name: "",
       email: "",
       password: "",
-      confirmPassword: "",
-      role: initialRole || "fan",
+      role: "fan",
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (data: RegisterFormData) => {
+      const response = await apiRequest("POST", "/api/auth/register", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setAuthToken(data.token);
+      refetch(); // Refresh auth state
+      navigate("/");
     },
   });
 
   const onSubmit = async (data: RegisterFormData) => {
-    try {
-      clearError();
-      await registerUser(data.email, data.password, data.name, data.role);
-      navigate("/");
-    } catch (error) {
-      // Error is handled by the store
-    }
+    registerMutation.mutate(data);
   };
-
-  const selectedRole = form.watch("role");
 
   return (
     <div className="min-h-screen hero-gradient flex items-center justify-center px-4 py-12">
@@ -92,224 +78,131 @@ export default function Register() {
           </Link>
         </div>
 
-        <Card className="glass border-border">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-bold" data-testid="register-title">
-              Join Rise Up Creators
-            </CardTitle>
+        <Card className="card-glass">
+          <CardHeader className="text-center pb-6">
+            <CardTitle className="text-2xl font-bold">Join Rise Up Creators</CardTitle>
             <p className="text-muted-foreground">
-              Create your account to get started
+              Create your account and start your musical journey
             </p>
           </CardHeader>
-          <CardContent>
-            {error && (
-              <Alert variant="destructive" className="mb-6" data-testid="register-error">
-                <AlertDescription>{error}</AlertDescription>
+
+          <CardContent className="space-y-6">
+            {registerMutation.error && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {registerMutation.error.message || "Registration failed. Please try again."}
+                </AlertDescription>
               </Alert>
             )}
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>I want to join as</FormLabel>
-                      <FormControl>
-                        <RadioGroup
-                          value={field.value}
-                          onValueChange={field.onChange}
-                          className="grid grid-cols-2 gap-4"
-                          data-testid="role-selection"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="fan" id="fan" />
-                            <Label
-                              htmlFor="fan"
-                              className={`flex items-center space-x-2 cursor-pointer p-3 rounded-lg border transition-colors ${
-                                selectedRole === "fan"
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border hover:border-primary/50"
-                              }`}
-                            >
-                              <User className="w-4 h-4" />
-                              <span>Fan</span>
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="artist" id="artist" />
-                            <Label
-                              htmlFor="artist"
-                              className={`flex items-center space-x-2 cursor-pointer p-3 rounded-lg border transition-colors ${
-                                selectedRole === "artist"
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border hover:border-primary/50"
-                              }`}
-                            >
-                              <Users className="w-4 h-4" />
-                              <span>Artist</span>
-                            </Label>
-                          </div>
-                        </RadioGroup>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  placeholder="Enter your full name"
+                  {...form.register("name")}
+                  disabled={registerMutation.isPending}
                 />
+                {form.formState.errors.name && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.name.message}
+                  </p>
+                )}
+              </div>
 
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Enter your full name"
-                          className="input-primary"
-                          data-testid="name-input"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  {...form.register("email")}
+                  disabled={registerMutation.isPending}
                 />
+                {form.formState.errors.email && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.email.message}
+                  </p>
+                )}
+              </div>
 
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="email"
-                          placeholder="Enter your email"
-                          className="input-primary"
-                          data-testid="email-input"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    {...form.register("password")}
+                    disabled={registerMutation.isPending}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={registerMutation.isPending}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {form.formState.errors.password && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.password.message}
+                  </p>
+                )}
+              </div>
 
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            {...field}
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Create a password"
-                            className="input-primary pr-10"
-                            data-testid="password-input"
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                            onClick={() => setShowPassword(!showPassword)}
-                            data-testid="toggle-password"
-                          >
-                            {showPassword ? (
-                              <EyeOff className="w-4 h-4 text-muted-foreground" />
-                            ) : (
-                              <Eye className="w-4 h-4 text-muted-foreground" />
-                            )}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            {...field}
-                            type={showConfirmPassword ? "text" : "password"}
-                            placeholder="Confirm your password"
-                            className="input-primary pr-10"
-                            data-testid="confirm-password-input"
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                            data-testid="toggle-confirm-password"
-                          >
-                            {showConfirmPassword ? (
-                              <EyeOff className="w-4 h-4 text-muted-foreground" />
-                            ) : (
-                              <Eye className="w-4 h-4 text-muted-foreground" />
-                            )}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <Button
-                  type="submit"
-                  className="w-full btn-primary"
-                  disabled={isLoading}
-                  data-testid="register-submit"
+              <div className="space-y-3">
+                <Label>I want to join as</Label>
+                <RadioGroup
+                  value={form.watch("role")}
+                  onValueChange={(value: "fan" | "artist") => form.setValue("role", value)}
+                  className="grid grid-cols-2 gap-4"
+                  disabled={registerMutation.isPending}
                 >
-                  {isLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" className="mr-2" />
-                      Creating Account...
-                    </>
-                  ) : (
-                    `Create ${selectedRole === "artist" ? "Artist" : "Fan"} Account`
-                  )}
-                </Button>
-              </form>
-            </Form>
+                  <div className="flex items-center space-x-2 border rounded-lg p-3 hover:bg-accent">
+                    <RadioGroupItem value="fan" id="fan" />
+                    <Label htmlFor="fan" className="cursor-pointer">
+                      Music Fan
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2 border rounded-lg p-3 hover:bg-accent">
+                    <RadioGroupItem value="artist" id="artist" />
+                    <Label htmlFor="artist" className="cursor-pointer">
+                      Artist/Creator
+                    </Label>
+                  </div>
+                </RadioGroup>
+                {form.formState.errors.role && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.role.message}
+                  </p>
+                )}
+              </div>
 
-            <div className="mt-6 text-center">
-              <p className="text-muted-foreground">
-                Already have an account?{" "}
-                <Link href="/login">
-                  <span className="text-primary hover:text-primary/80 font-medium cursor-pointer" data-testid="login-link">
-                    Sign in
-                  </span>
-                </Link>
-              </p>
-            </div>
+              <Button
+                type="submit"
+                className="w-full btn-primary"
+                disabled={registerMutation.isPending}
+              >
+                {registerMutation.isPending ? (
+                  <LoadingSpinner size="sm" className="mr-2" />
+                ) : null}
+                Create Account
+              </Button>
+            </form>
 
-            <div className="mt-6 text-xs text-muted-foreground text-center">
-              By creating an account, you agree to our{" "}
-              <Link href="/terms">
-                <span className="text-primary hover:text-primary/80 cursor-pointer">
-                  Terms of Service
-                </span>
-              </Link>{" "}
-              and{" "}
-              <Link href="/privacy">
-                <span className="text-primary hover:text-primary/80 cursor-pointer">
-                  Privacy Policy
-                </span>
+            <div className="text-center text-sm">
+              <span className="text-muted-foreground">Already have an account? </span>
+              <Link href="/login" className="text-primary hover:text-primary/80 font-medium">
+                Sign in
               </Link>
             </div>
           </CardContent>
