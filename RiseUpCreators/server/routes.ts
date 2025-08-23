@@ -17,6 +17,15 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
+import cloudinary from 'cloudinary'; // Assuming cloudinary is imported from a module like 'cloudinary'
+
+// Configure Cloudinary (replace with your actual credentials or environment variable loading)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 
 // ------------------------ Config ------------------------
 const isProd = process.env.NODE_ENV === "production";
@@ -129,6 +138,119 @@ export function setupRoutes(app: Express): void {
   // USER ROUTES
   // ============================================================================
 
+  app.get("/api/user", authenticate, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const artist = user.role === "artist" ? await storage.getArtistByUserId(user.id) : null;
+      res.json({ ...user, artist });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/user/settings", authenticate, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      res.json({
+        profile: {
+          name: user.name,
+          bio: user.bio || '',
+          location: user.location || '',
+          dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().split('T')[0] : '',
+          genres: user.genres || [],
+          socialLinks: user.socialLinks || {
+            instagram: '',
+            twitter: '',
+            youtube: '',
+            spotify: '',
+            website: '',
+          },
+        },
+        privacy: user.settings?.privacy || {
+          showListeningActivity: true,
+          showPlaylists: true,
+          allowMessages: true,
+        },
+        notifications: {
+          emailNotifications: user.settings?.emailNotifications ?? true,
+          pushNotifications: user.settings?.pushNotifications ?? true,
+        },
+        adPreferences: user.settings?.adPreferences || {
+          personalizedAds: true,
+          frequency: 'normal',
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/user/settings", authenticate, async (req: any, res) => {
+    try {
+      const { privacy, notifications, adPreferences } = req.body;
+
+      const updates: any = {};
+      if (privacy) updates['settings.privacy'] = privacy;
+      if (notifications) {
+        if (notifications.emailNotifications !== undefined) {
+          updates['settings.emailNotifications'] = notifications.emailNotifications;
+        }
+        if (notifications.pushNotifications !== undefined) {
+          updates['settings.pushNotifications'] = notifications.pushNotifications;
+        }
+      }
+      if (adPreferences) updates['settings.adPreferences'] = adPreferences;
+
+      await storage.updateUser(req.user.id, updates);
+      res.json({ message: "Settings updated successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/user/profile", authenticate, upload.single('avatar'), async (req: any, res) => {
+    try {
+      const profileData = JSON.parse(req.body.profileData || '{}');
+      const updates: any = {};
+
+      if (profileData.name) updates.name = profileData.name;
+      if (profileData.bio !== undefined) updates.bio = profileData.bio;
+      if (profileData.location !== undefined) updates.location = profileData.location;
+      if (profileData.dateOfBirth) updates.dateOfBirth = new Date(profileData.dateOfBirth);
+      if (profileData.genres) updates.genres = profileData.genres;
+      if (profileData.socialLinks) updates.socialLinks = profileData.socialLinks;
+
+      // Handle avatar upload
+      if (req.file) {
+        try {
+          const uploadResult = await cloudinary.uploader.upload(
+            `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+            {
+              folder: 'avatars',
+              public_id: `avatar_${req.user.id}`,
+              transformation: [
+                { width: 300, height: 300, crop: 'fill', gravity: 'face' }
+              ]
+            }
+          );
+          updates.avatar = uploadResult.secure_url;
+        } catch (uploadError) {
+          console.error('Avatar upload failed:', uploadError);
+        }
+      }
+
+      await storage.updateUser(req.user.id, updates);
+      res.json({ message: "Profile updated successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+
   app.get("/api/users/profile", authenticate, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
@@ -225,6 +347,116 @@ export function setupRoutes(app: Express): void {
   // SONG ROUTES
   // ============================================================================
 
+  app.post("/api/songs/upload", authenticate, upload.fields([
+    { name: 'audioFile', maxCount: 1 },
+    { name: 'artworkFile', maxCount: 1 }
+  ]), async (req: any, res) => {
+    try {
+      if (req.user.role !== 'artist') {
+        return res.status(403).json({ message: "Only artists can upload music" });
+      }
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) {
+        return res.status(404).json({ message: "Artist profile not found" });
+      }
+
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+      const audioFile = files.audioFile?.[0];
+      const artworkFile = files.artworkFile?.[0];
+
+      if (!audioFile) {
+        return res.status(400).json({ message: "Audio file is required" });
+      }
+
+      const songData = JSON.parse(req.body.songData);
+
+      // Upload audio file to Cloudinary
+      const audioUpload = await cloudinary.uploader.upload(
+        `data:${audioFile.mimetype};base64,${audioFile.buffer.toString('base64')}`,
+        {
+          resource_type: 'video',
+          folder: 'music',
+          public_id: `song_${Date.now()}`,
+        }
+      );
+
+      let artworkUpload = null;
+      if (artworkFile) {
+        artworkUpload = await cloudinary.uploader.upload(
+          `data:${artworkFile.mimetype};base64,${artworkFile.buffer.toString('base64')}`,
+          {
+            folder: 'artwork',
+            public_id: `artwork_${Date.now()}`,
+            transformation: [{ width: 1000, height: 1000, crop: 'fill' }]
+          }
+        );
+      }
+
+      const newSong = await storage.createSong({
+        title: songData.title,
+        artistId: artist._id,
+        genre: songData.genre,
+        subGenres: songData.subGenres || [],
+        duration: songData.duration,
+        releaseDate: new Date(songData.releaseDate),
+        files: {
+          audioUrl: audioUpload.secure_url,
+          audioFileId: audioUpload.public_id,
+          artworkUrl: artworkUpload?.secure_url,
+          artworkFileId: artworkUpload?.public_id,
+        },
+        metadata: songData.metadata || {},
+        visibility: songData.visibility || 'public',
+        monetization: songData.monetization || {
+          isMonetized: false,
+          adEnabled: true,
+        },
+        analytics: {
+          playCount: 0,
+          uniqueListeners: 0,
+          likeCount: 0,
+          shareCount: 0,
+          downloadCount: 0,
+          trendingScore: 0,
+          playHistory: [],
+        },
+      });
+
+      res.status(201).json(newSong);
+    } catch (error: any) {
+      console.error('Song upload error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/artists/my-music", authenticate, async (req: any, res) => {
+    try {
+      if (req.user.role !== 'artist') {
+        return res.status(403).json({ message: "Artist access required" });
+      }
+
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) {
+        return res.status(404).json({ message: "Artist profile not found" });
+      }
+
+      const songs = await storage.getSongsByArtist(artist._id); // Assuming getSongsByArtist returns all songs for an artist
+
+      const stats = {
+        totalSongs: songs.length,
+        totalPlays: songs.reduce((sum, song) => sum + (song.analytics?.playCount || 0), 0),
+        totalLikes: songs.reduce((sum, song) => sum + (song.analytics?.likeCount || 0), 0),
+        monthlyListeners: artist.stats?.monthlyListeners || 0,
+      };
+
+      res.json({ songs, stats });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+
   app.get("/api/songs", optionalAuth, async (req: any, res) => {
     try {
       const trending = String(req.query.trending || "false") === "true";
@@ -254,83 +486,53 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post(
-    "/api/songs",
-    authenticate,
-    requireRole(["artist"]),
-    upload.fields([
-      { name: "audio", maxCount: 1 },
-      { name: "artwork", maxCount: 1 },
-    ]),
-    async (req: any, res) => {
-      try {
-        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-        if (!files.audio?.[0]) return res.status(400).json({ message: "Audio file is required" });
 
-        const artist = await storage.getArtistByUserId(req.user.id);
-        if (!artist) return res.status(400).json({ message: "Artist profile not found" });
-
-        const audioUpload = await cloudinaryService.uploadAudio(files.audio[0].buffer, { folder: "ruc/songs" });
-
-        let artworkUpload: any = null;
-        if (files.artwork?.[0]) {
-          artworkUpload = await cloudinaryService.uploadArtwork(files.artwork[0].buffer, { folder: "ruc/artwork" });
-        }
-
-        const waveformData = await cloudinaryService.generateWaveform(audioUpload.secure_url);
-
-        const songData = {
-          ...req.body,
-          artistId: artist.id,
-          files: {
-            audioUrl: audioUpload.secure_url,
-            audioFileId: audioUpload.public_id,
-            artworkUrl: artworkUpload?.secure_url,
-            artworkFileId: artworkUpload?.public_id,
-            waveformData,
-          },
-        };
-
-        const song = await storage.createSong(songData);
-        res.json(song);
-      } catch (error: any) {
-        res.status(500).json({ message: error.message });
-      }
-    }
-  );
-
-  app.post("/api/songs/:id/play", optionalAuth, async (req: any, res) => {
+  app.put("/api/songs/:id", authenticate, async (req: any, res) => {
     try {
-      await analyticsService.trackPlay(req.params.id, req.user?.id);
-
-      const song = await storage.getSong(req.params.id);
-      if (song) {
-        const updatedAnalytics = {
-          ...song.analytics,
-          playCount: (song.analytics?.playCount || 0) + 1,
-        };
-        await storage.updateSong(req.params.id, { analytics: updatedAnalytics });
+      const song = await storage.getSong(req.params.id); // Use storage.getSong
+      if (!song) {
+        return res.status(404).json({ message: "Song not found" });
       }
-      res.json({ message: "Play tracked successfully" });
+
+      // Check if user owns this song
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || song.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updates = req.body;
+      const updatedSong = await storage.updateSong(req.params.id, updates); // Use storage.updateSong
+
+      res.json(updatedSong);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/songs/:id/like", authenticate, async (req: any, res) => {
+  app.delete("/api/songs/:id", authenticate, async (req: any, res) => {
     try {
-      await storage.likeSong(req.user.id, req.params.id);
-      await analyticsService.trackLike(req.params.id, req.user.id);
-      res.json({ message: "Song liked successfully" });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
+      const song = await storage.getSong(req.params.id); // Use storage.getSong
+      if (!song) {
+        return res.status(404).json({ message: "Song not found" });
+      }
 
-  app.delete("/api/songs/:id/like", authenticate, async (req: any, res) => {
-    try {
-      await storage.unlikeSong(req.user.id, req.params.id);
-      res.json({ message: "Song unliked successfully" });
+      // Check if user owns this song
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist || song.artistId.toString() !== artist._id.toString()) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Delete files from Cloudinary
+      if (song.files?.audioFileId) {
+        await cloudinaryService.deleteAudio(song.files.audioFileId); // Use cloudinaryService
+      }
+      if (song.files?.artworkFileId) {
+        await cloudinaryService.deleteArtwork(song.files.artworkFileId); // Use cloudinaryService
+      }
+
+      await storage.deleteSong(req.params.id); // Use storage.deleteSong
+
+      res.json({ message: "Song deleted successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

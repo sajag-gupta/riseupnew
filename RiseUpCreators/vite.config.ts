@@ -4,20 +4,27 @@ import path from "path";
 import { fileURLToPath } from "url";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
+// Lazy import optional Replit plugin
+let cartographer: any = null;
+if (process.env.NODE_ENV !== "production" && process.env.REPL_ID) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    cartographer = require("@replit/vite-plugin-cartographer").cartographer();
+  } catch {
+    cartographer = null;
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isProd = process.env.NODE_ENV === "production";
+const EMBED_VITE = process.env.EMBED_VITE === "1"; // single-port dev (middleware mode)
+const VITE_PORT = Number(process.env.VITE_PORT) || 5173;
+const API_URL = process.env.API_URL || "http://localhost:5000";
+
 export default defineConfig({
-  plugins: [
-    react(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
-      ? [
-          // cartographer only on Replit non-prod
-          await import("@replit/vite-plugin-cartographer").then((m) => m.cartographer()),
-        ]
-      : []),
-  ],
+  plugins: [react(), runtimeErrorOverlay(), ...(cartographer ? [cartographer] : [])],
 
   resolve: {
     alias: {
@@ -27,30 +34,35 @@ export default defineConfig({
     },
   },
 
-  // Serve the app from /client in dev
   root: path.resolve(__dirname, "client"),
 
   build: {
-    // Build client into dist/public for your Express static in prod
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
   },
 
-  server: {
-    port: 5173,
-    proxy: {
-      // Proxy API calls to your Express server (:3000)
-      "/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-        secure: false,
+  server: EMBED_VITE
+    ? {
+        host: true,
+        allowedHosts: true, // ✅ allow all hosts
+      }
+    : {
+        host: true,
+        allowedHosts: true, // ✅ fix Replit blocked host issue
+        port: VITE_PORT,
+        strictPort: true,
+        proxy: {
+          "/api": {
+            target: API_URL,
+            changeOrigin: true,
+            secure: false,
+          },
+        },
+        cors: true,
+        fs: {
+          strict: true,
+          allow: [path.resolve(__dirname, "client")],
+          deny: ["**/.*"],
+        },
       },
-    },
-    // Keep Vite’s FS guard tight but allow your client dir
-    fs: {
-      strict: true,
-      allow: [path.resolve(__dirname, "client")],
-      deny: ["**/.*"],
-    },
-  },
 });

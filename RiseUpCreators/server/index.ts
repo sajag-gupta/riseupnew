@@ -13,12 +13,20 @@ const isProduction = process.env.NODE_ENV === "production";
 // When EMBED_VITE=1, run Vite in middleware mode (single process on :3000)
 const EMBED_VITE = process.env.EMBED_VITE === "1";
 
+// If you run behind a proxy (nginx, Render, etc.) this makes req.ip accurate
+app.set("trust proxy", 1);
+
 // Minimal request logger that ignores Vite/HMR/static noise
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
-    if (/^\/(@vite|@react-refresh|src\/|node_modules\/|@fs\/|.*\.map$)/.test(req.path)) return;
-    if (req.path === "/favicon.ico") return;
+    if (
+      req.path === "/favicon.ico" ||
+      req.path === "/api/health" ||
+      /^\/(@vite|@react-refresh|src\/|node_modules\/|@fs\/|.*\.map$)/.test(req.path)
+    ) {
+      return;
+    }
     console.log(`${res.statusCode} ${req.method} ${req.path} ${Date.now() - start}ms`);
   });
   next();
@@ -44,10 +52,10 @@ app.get("/api/health", (_req, res) => res.status(200).send("ok"));
     // Prod: serve built client from /dist/public
     serveStatic(app);
   } else if (EMBED_VITE) {
-    // Dev (single-process): attach Vite middleware/HMR to this server
+    // Dev (single-process): attach Vite middleware/HMR to this server (one port)
     await setupVite(app, server);
   } else {
-    // Dev (two-process proxy): Vite runs separately on :5173; no client serving here
+    // Dev (two-process proxy): Vite runs separately on :5173; API only here
     // The vite.config.ts proxies /api -> :3000
   }
 
@@ -61,8 +69,9 @@ app.get("/api/health", (_req, res) => res.status(200).send("ok"));
     const mode = isProduction
       ? "production"
       : EMBED_VITE
-      ? "development (single-process)"
-      : "development (proxy)";
+      ? "development (single-port via embedded Vite)"
+      : "development (proxy: Vite :5173, API :3000)";
+
     console.log(`Server running on http://localhost:${PORT} in ${mode}`);
     if (!isProduction && !EMBED_VITE) {
       console.log(`Vite dev server: http://localhost:5173 (proxying /api -> :${PORT})`);
