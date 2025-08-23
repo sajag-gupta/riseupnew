@@ -175,7 +175,8 @@
 
   /* Glass effect */
   .glass {
-    @apply bg-card/80 backdrop-blur-md border border-border;
+    @apply backdrop-blur-md border border-border;
+    background-color: hsla(0, 0%, 10.2%, 0.8);
   }
 
   /* Text gradients */

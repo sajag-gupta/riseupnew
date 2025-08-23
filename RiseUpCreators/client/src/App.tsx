@@ -1,9 +1,11 @@
+// src/App.tsx
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import type { User } from "@shared/schema";
 
 // Layout components
 import Header from "@/components/layout/Header";
@@ -22,20 +24,22 @@ import FanDashboard from "@/pages/fan/Dashboard";
 import Discover from "@/pages/Discover";
 import Events from "@/pages/Events";
 import Merch from "@/pages/MerchStore";
-import AdminPanel from "@/pages/admin/AdminPanel";
+import AdminPanel from "@/pages/AdminPanel";
 import NotFound from "@/pages/not-found";
 
-function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-
+function AuthenticatedLayout({
+  children,
+  user,
+}: {
+  children: React.ReactNode;
+  user: User;
+}) {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Header />
+      <Header /* you can pass user if Header accepts it */ />
       <div className="flex">
-        <Sidebar />
-        <main className="flex-1 pt-16 pb-24">
-          {children}
-        </main>
+        <Sidebar /* same here, if needed */ />
+        <main className="flex-1 pt-16 pb-24">{children}</main>
       </div>
       <MusicPlayer />
     </div>
@@ -46,9 +50,7 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
-      <main className="pt-16">
-        {children}
-      </main>
+      <main className="pt-16">{children}</main>
       <Footer />
     </div>
   );
@@ -73,7 +75,7 @@ function Router() {
           <Login />
         </PublicLayout>
       </Route>
-      
+
       <Route path="/register">
         <PublicLayout>
           <Register />
@@ -87,48 +89,48 @@ function Router() {
       </Route>
 
       {/* Authenticated routes */}
-      {isAuthenticated ? (
+      {isAuthenticated && user ? (
         <>
           <Route path="/">
-            <AuthenticatedLayout>
+            <AuthenticatedLayout user={user}>
               <Home />
             </AuthenticatedLayout>
           </Route>
 
           <Route path="/discover">
-            <AuthenticatedLayout>
+            <AuthenticatedLayout user={user}>
               <Discover />
             </AuthenticatedLayout>
           </Route>
 
           <Route path="/events">
-            <AuthenticatedLayout>
+            <AuthenticatedLayout user={user}>
               <Events />
             </AuthenticatedLayout>
           </Route>
 
           <Route path="/merch">
-            <AuthenticatedLayout>
+            <AuthenticatedLayout user={user}>
               <Merch />
             </AuthenticatedLayout>
           </Route>
 
           <Route path="/dashboard">
-            <AuthenticatedLayout>
-              {user?.role === 'artist' ? <ArtistDashboard /> : <FanDashboard />}
+            <AuthenticatedLayout user={user}>
+              {user.role === "artist" ? <ArtistDashboard /> : <FanDashboard />}
             </AuthenticatedLayout>
           </Route>
 
-          {user?.role === 'admin' && (
+          {user.role === "admin" && (
             <Route path="/admin">
-              <AuthenticatedLayout>
+              <AuthenticatedLayout user={user}>
                 <AdminPanel />
               </AuthenticatedLayout>
             </Route>
           )}
         </>
       ) : (
-        /* Landing page for non-authenticated users */
+        // Landing page for non-authenticated users
         <Route path="/">
           <PublicLayout>
             <Landing />
