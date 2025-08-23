@@ -1,34 +1,38 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authService } from "./auth";
-import { authenticate, requireRole, optionalAuth, validateRequest, rateLimiter, errorHandler } from "./middleware";
+import {
+  authenticate,
+  requireRole,
+  optionalAuth,
+  validateRequest,
+  rateLimiter,
+  errorHandler,
+} from "./middleware";
 import { cloudinaryService } from "./services/cloudinary";
 import { emailService } from "./services/email";
 import { analyticsService } from "./services/analytics";
 import {
-  insertUserSchema,
-  insertSongSchema,
-  insertAlbumSchema,
   insertPlaylistSchema,
-  insertProductSchema,
-  insertEventSchema,
-  insertOrderSchema,
-  insertSubscriptionSchema,
-  insertBlogSchema,
-  insertReportSchema,
-  insertAdSchema
 } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
-import QRCode from "qrcode";
+
+// ------------------------ Config ------------------------
+const isProd = process.env.NODE_ENV === "production";
+const JWT_COOKIE_NAME = process.env.JWT_COOKIE_NAME || "token";
+const cookieOpts = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: isProd,
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7d
+  path: "/",
+};
 
 // Multer configuration for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
-  },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
 // Validation schemas
@@ -41,97 +45,112 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2),
-  role: z.enum(['fan', 'artist']).optional(),
+  role: z.enum(["fan", "artist"]).optional(),
 });
 
 const searchSchema = z.object({
   q: z.string().min(1),
-  type: z.enum(['all', 'songs', 'artists', 'events', 'products']).optional(),
+  type: z.enum(["all", "songs", "artists", "events", "products"]).optional(),
   limit: z.coerce.number().min(1).max(100).optional(),
 });
 
 export function setupRoutes(app: Express): void {
-  // Rate limiting
-  app.use('/api/auth', rateLimiter(15 * 60 * 1000, 5)); // 5 requests per 15 minutes for auth
-  app.use('/api', rateLimiter(60 * 1000, 100)); // 100 requests per minute for API
+  // ------------------------ Rate limiting ------------------------
+  // In dev, skip rate limiting entirely.
+  if (isProd) {
+    const skipPaths = new Set<string>(["/api/auth/me", "/me"]);
+    app.use("/api/auth", (req, res, next) => {
+      const p = req.originalUrl || req.url;
+      if (skipPaths.has(p)) return next();
+      return rateLimiter(15 * 60 * 1000, 50)(req, res, next); // 50 / 15min for auth
+    });
+    app.use("/api", (req, res, next) => {
+      const p = req.originalUrl || req.url;
+      if (skipPaths.has(p)) return next();
+      return rateLimiter(60 * 1000, 300)(req, res, next); // 300 / min for API
+    });
+  }
 
   // ============================================================================
   // AUTH ROUTES
   // ============================================================================
 
-  app.post('/api/auth/register', validateRequest(registerSchema), async (req, res) => {
+  app.post("/api/auth/register", validateRequest(registerSchema), async (req, res) => {
     try {
-      const { email, password, name, role = 'fan' } = req.body;
+      const { email, password, name, role = "fan" } = req.body;
       const { user, token } = await authService.register(email, password, name, role);
 
-      // Send welcome email
+      // Welcome + analytics
       await emailService.sendWelcomeEmail(user.email, user.name, user.role);
-
-      // Track signup
       await analyticsService.trackSignup(user.role, user.id);
 
-      res.json({ user, token });
+      // Set HttpOnly cookie so FE fetches with credentials: "include" work
+      res.cookie(JWT_COOKIE_NAME, token, cookieOpts);
+      res.status(201).json({ user, token });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   });
 
-  app.post('/api/auth/login', validateRequest(loginSchema), async (req, res) => {
+  app.post("/api/auth/login", validateRequest(loginSchema), async (req, res) => {
     try {
       const { email, password } = req.body;
       const { user, token } = await authService.login(email, password);
 
-      // Track login
       await analyticsService.trackLogin(user.id);
 
+      res.cookie(JWT_COOKIE_NAME, token, cookieOpts);
       res.json({ user, token });
     } catch (error: any) {
-      res.status(400).json({ message: error.message });
+      res.status(401).json({ message: error.message || "Invalid credentials" });
     }
   });
 
-  app.get('/api/auth/me', authenticate, async (req: any, res) => {
-    res.json(req.user);
+  // "Who am I" — optional auth so unauthenticated users get 401 (frontend treats as null)
+  app.get("/api/auth/me", optionalAuth, (req: any, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const { id, email, role, name, status, isVerified, lastActive } = req.user;
+    res.json({ id, email, role, name, status, isVerified, lastActive });
   });
 
-  app.post('/api/auth/logout', authenticate, async (req, res) => {
-    res.json({ message: 'Logged out successfully' });
+  // Backward-compat alias (same response, no redirect)
+  app.get("/me", optionalAuth, (req: any, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const { id, email, role, name, status, isVerified, lastActive } = req.user;
+    res.json({ id, email, role, name, status, isVerified, lastActive });
+  });
+
+  app.post("/api/auth/logout", (_req, res) => {
+    res.clearCookie(JWT_COOKIE_NAME, { ...cookieOpts, maxAge: 0 });
+    res.status(204).end();
   });
 
   // ============================================================================
   // USER ROUTES
   // ============================================================================
 
-  app.get('/api/users/profile', authenticate, async (req: any, res) => {
+  app.get("/api/users/profile", authenticate, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
+      if (!user) return res.status(404).json({ message: "User not found" });
 
-      // Get artist profile if user is artist
-      let artist = null;
-      if (user.role === 'artist') {
-        artist = await storage.getArtistByUserId(user.id);
-      }
-
+      const artist = user.role === "artist" ? await storage.getArtistByUserId(user.id) : null;
       res.json({ user, artist });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.patch('/api/users/profile', authenticate, async (req: any, res) => {
+  app.patch("/api/users/profile", authenticate, async (req: any, res) => {
     try {
-      const updates = req.body;
-      const updatedUser = await storage.updateUser(req.user.id, updates);
+      const updatedUser = await storage.updateUser(req.user.id, req.body);
       res.json(updatedUser);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.get('/api/users/notifications', authenticate, async (req: any, res) => {
+  app.get("/api/users/notifications", authenticate, async (req: any, res) => {
     try {
       const notifications = await storage.getNotificationsByUser(req.user.id);
       res.json(notifications);
@@ -140,10 +159,10 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.patch('/api/users/notifications/:id/read', authenticate, async (req: any, res) => {
+  app.patch("/api/users/notifications/:id/read", authenticate, async (req: any, res) => {
     try {
       await storage.markNotificationAsRead(req.params.id);
-      res.json({ message: 'Notification marked as read' });
+      res.json({ message: "Notification marked as read" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -153,42 +172,29 @@ export function setupRoutes(app: Express): void {
   // ARTIST ROUTES
   // ============================================================================
 
-  app.get('/api/artists', optionalAuth, async (req: any, res) => {
+  app.get("/api/artists", optionalAuth, async (req: any, res) => {
     try {
-      const { featured } = req.query;
-      let artists;
-
-      if (featured === 'true') {
-        artists = await storage.getFeaturedArtists(12);
-      } else {
-        artists = await storage.getFeaturedArtists(50);
-      }
-
+      const featured = String(req.query.featured || "false") === "true";
+      const limit = featured ? 12 : 50;
+      const artists = await storage.getFeaturedArtists(limit);
       res.json(artists);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.get('/api/artists/:id', optionalAuth, async (req: any, res) => {
+  app.get("/api/artists/:id", optionalAuth, async (req: any, res) => {
     try {
       const artist = await storage.getArtist(req.params.id);
-      if (!artist) {
-        return res.status(404).json({ message: 'Artist not found' });
-      }
+      if (!artist) return res.status(404).json({ message: "Artist not found" });
 
-      // Get artist's songs, products, events
       const [songs, products, events] = await Promise.all([
         storage.getSongsByArtist(req.params.id, 20),
         storage.getProductsByArtist(req.params.id),
         storage.getEventsByArtist(req.params.id),
       ]);
 
-      // Check if current user follows this artist
-      let isFollowing = false;
-      if (req.user) {
-        isFollowing = await storage.isFollowing(req.user.id, req.params.id);
-      }
+      const isFollowing = req.user ? await storage.isFollowing(req.user.id, req.params.id) : false;
 
       res.json({ artist, songs, products, events, isFollowing });
     } catch (error: any) {
@@ -196,23 +202,20 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post('/api/artists/:id/follow', authenticate, async (req: any, res) => {
+  app.post("/api/artists/:id/follow", authenticate, async (req: any, res) => {
     try {
       await storage.followArtist(req.user.id, req.params.id);
-
-      // Track follow
       await analyticsService.trackFollow(req.params.id, req.user.id);
-
-      res.json({ message: 'Artist followed successfully' });
+      res.json({ message: "Artist followed successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.delete('/api/artists/:id/follow', authenticate, async (req: any, res) => {
+  app.delete("/api/artists/:id/follow", authenticate, async (req: any, res) => {
     try {
       await storage.unfollowArtist(req.user.id, req.params.id);
-      res.json({ message: 'Artist unfollowed successfully' });
+      res.json({ message: "Artist unfollowed successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -222,18 +225,16 @@ export function setupRoutes(app: Express): void {
   // SONG ROUTES
   // ============================================================================
 
-  app.get('/api/songs', optionalAuth, async (req: any, res) => {
+  app.get("/api/songs", optionalAuth, async (req: any, res) => {
     try {
-      const { trending, artistId, limit = 20 } = req.query;
-      let songs;
+      const trending = String(req.query.trending || "false") === "true";
+      const artistId = req.query.artistId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
 
-      if (trending === 'true') {
-        songs = await storage.getTrendingSongs(parseInt(limit));
-      } else if (artistId) {
-        songs = await storage.getSongsByArtist(artistId, parseInt(limit));
-      } else {
-        songs = await storage.getTrendingSongs(parseInt(limit));
-      }
+      let songs;
+      if (trending) songs = await storage.getTrendingSongs(limit);
+      else if (artistId) songs = await storage.getSongsByArtist(artistId, limit);
+      else songs = await storage.getTrendingSongs(limit);
 
       res.json(songs);
     } catch (error: any) {
@@ -241,86 +242,67 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.get('/api/songs/:id', optionalAuth, async (req: any, res) => {
+  app.get("/api/songs/:id", optionalAuth, async (req: any, res) => {
     try {
       const song = await storage.getSong(req.params.id);
-      if (!song) {
-        return res.status(404).json({ message: 'Song not found' });
-      }
+      if (!song) return res.status(404).json({ message: "Song not found" });
 
-      // Check if current user likes this song
-      let isLiked = false;
-      if (req.user) {
-        isLiked = await storage.isLiked(req.user.id, req.params.id);
-      }
-
+      const isLiked = req.user ? await storage.isLiked(req.user.id, req.params.id) : false;
       res.json({ song, isLiked });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post('/api/songs', authenticate, requireRole(['artist']), upload.fields([
-    { name: 'audio', maxCount: 1 },
-    { name: 'artwork', maxCount: 1 }
-  ]), async (req: any, res) => {
-    try {
-      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+  app.post(
+    "/api/songs",
+    authenticate,
+    requireRole(["artist"]),
+    upload.fields([
+      { name: "audio", maxCount: 1 },
+      { name: "artwork", maxCount: 1 },
+    ]),
+    async (req: any, res) => {
+      try {
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        if (!files.audio?.[0]) return res.status(400).json({ message: "Audio file is required" });
 
-      if (!files.audio || !files.audio[0]) {
-        return res.status(400).json({ message: 'Audio file is required' });
+        const artist = await storage.getArtistByUserId(req.user.id);
+        if (!artist) return res.status(400).json({ message: "Artist profile not found" });
+
+        const audioUpload = await cloudinaryService.uploadAudio(files.audio[0].buffer, { folder: "ruc/songs" });
+
+        let artworkUpload: any = null;
+        if (files.artwork?.[0]) {
+          artworkUpload = await cloudinaryService.uploadArtwork(files.artwork[0].buffer, { folder: "ruc/artwork" });
+        }
+
+        const waveformData = await cloudinaryService.generateWaveform(audioUpload.secure_url);
+
+        const songData = {
+          ...req.body,
+          artistId: artist.id,
+          files: {
+            audioUrl: audioUpload.secure_url,
+            audioFileId: audioUpload.public_id,
+            artworkUrl: artworkUpload?.secure_url,
+            artworkFileId: artworkUpload?.public_id,
+            waveformData,
+          },
+        };
+
+        const song = await storage.createSong(songData);
+        res.json(song);
+      } catch (error: any) {
+        res.status(500).json({ message: error.message });
       }
-
-      // Get artist profile
-      const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) {
-        return res.status(400).json({ message: 'Artist profile not found' });
-      }
-
-      // Upload audio file
-      const audioBuffer = files.audio[0].buffer;
-      const audioUpload = await cloudinaryService.uploadAudio(audioBuffer, {
-        folder: 'ruc/songs',
-      });
-
-      // Upload artwork if provided
-      let artworkUpload = null;
-      if (files.artwork && files.artwork[0]) {
-        const artworkBuffer = files.artwork[0].buffer;
-        artworkUpload = await cloudinaryService.uploadArtwork(artworkBuffer, {
-          folder: 'ruc/artwork',
-        });
-      }
-
-      // Generate waveform data
-      const waveformData = await cloudinaryService.generateWaveform(audioUpload.secure_url);
-
-      // Create song
-      const songData = {
-        ...req.body,
-        artistId: artist.id,
-        files: {
-          audioUrl: audioUpload.secure_url,
-          audioFileId: audioUpload.public_id,
-          artworkUrl: artworkUpload?.secure_url,
-          artworkFileId: artworkUpload?.public_id,
-          waveformData,
-        },
-      };
-
-      const song = await storage.createSong(songData);
-      res.json(song);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
     }
-  });
+  );
 
-  app.post('/api/songs/:id/play', optionalAuth, async (req: any, res) => {
+  app.post("/api/songs/:id/play", optionalAuth, async (req: any, res) => {
     try {
-      // Track play event
       await analyticsService.trackPlay(req.params.id, req.user?.id);
 
-      // Update song play count
       const song = await storage.getSong(req.params.id);
       if (song) {
         const updatedAnalytics = {
@@ -329,30 +311,26 @@ export function setupRoutes(app: Express): void {
         };
         await storage.updateSong(req.params.id, { analytics: updatedAnalytics });
       }
-
-      res.json({ message: 'Play tracked successfully' });
+      res.json({ message: "Play tracked successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post('/api/songs/:id/like', authenticate, async (req: any, res) => {
+  app.post("/api/songs/:id/like", authenticate, async (req: any, res) => {
     try {
       await storage.likeSong(req.user.id, req.params.id);
-
-      // Track like
       await analyticsService.trackLike(req.params.id, req.user.id);
-
-      res.json({ message: 'Song liked successfully' });
+      res.json({ message: "Song liked successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.delete('/api/songs/:id/like', authenticate, async (req: any, res) => {
+  app.delete("/api/songs/:id/like", authenticate, async (req: any, res) => {
     try {
       await storage.unlikeSong(req.user.id, req.params.id);
-      res.json({ message: 'Song unliked successfully' });
+      res.json({ message: "Song unliked successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -362,7 +340,7 @@ export function setupRoutes(app: Express): void {
   // PLAYLIST ROUTES
   // ============================================================================
 
-  app.get('/api/playlists/me', authenticate, async (req: any, res) => {
+  app.get("/api/playlists/me", authenticate, async (req: any, res) => {
     try {
       const playlists = await storage.getPlaylistsByUser(req.user.id);
       res.json(playlists);
@@ -371,31 +349,23 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post('/api/playlists', authenticate, validateRequest(insertPlaylistSchema), async (req: any, res) => {
+  app.post("/api/playlists", authenticate, validateRequest(insertPlaylistSchema), async (req: any, res) => {
     try {
-      const playlistData = {
-        ...req.body,
-        ownerId: req.user.id,
-      };
-      const playlist = await storage.createPlaylist(playlistData);
+      const playlist = await storage.createPlaylist({ ...req.body, ownerId: req.user.id });
       res.json(playlist);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.get('/api/playlists/:id', optionalAuth, async (req: any, res) => {
+  app.get("/api/playlists/:id", optionalAuth, async (req: any, res) => {
     try {
       const playlist = await storage.getPlaylist(req.params.id);
-      if (!playlist) {
-        return res.status(404).json({ message: 'Playlist not found' });
-      }
+      if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-      // Check if user owns playlist or it's public
       if (!playlist.isPublic && (!req.user || playlist.ownerId !== req.user.id)) {
-        return res.status(403).json({ message: 'Access denied' });
+        return res.status(403).json({ message: "Access denied" });
       }
-
       res.json(playlist);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -406,30 +376,19 @@ export function setupRoutes(app: Express): void {
   // SEARCH ROUTES
   // ============================================================================
 
-  app.get('/api/search', optionalAuth, validateRequest(searchSchema), async (req: any, res) => {
+  app.get("/api/search", optionalAuth, validateRequest(searchSchema), async (req: any, res) => {
     try {
-      const { q, type = 'all', limit = 20 } = req.query;
+      const q = String(req.query.q);
+      const type = (req.query.type as string) || "all";
+      const limit = Number(req.query.limit ?? 20);
 
-      // Track search
       await analyticsService.trackSearch(q, 0, req.user?.id);
 
       const results: any = {};
-
-      if (type === 'all' || type === 'songs') {
-        results.songs = await storage.searchSongs(q, limit);
-      }
-
-      if (type === 'all' || type === 'artists') {
-        results.artists = await storage.searchArtists(q, limit);
-      }
-
-      if (type === 'all' || type === 'events') {
-        results.events = await storage.searchEvents(q, limit);
-      }
-
-      if (type === 'all' || type === 'products') {
-        results.products = await storage.searchProducts(q, limit);
-      }
+      if (type === "all" || type === "songs") results.songs = await storage.searchSongs(q, limit);
+      if (type === "all" || type === "artists") results.artists = await storage.searchArtists(q, limit);
+      if (type === "all" || type === "events") results.events = await storage.searchEvents(q, limit);
+      if (type === "all" || type === "products") results.products = await storage.searchProducts(q, limit);
 
       res.json(results);
     } catch (error: any) {
@@ -441,18 +400,16 @@ export function setupRoutes(app: Express): void {
   // EVENT ROUTES
   // ============================================================================
 
-  app.get('/api/events', optionalAuth, async (req: any, res) => {
+  app.get("/api/events", optionalAuth, async (req: any, res) => {
     try {
-      const { upcoming, artistId, limit = 20 } = req.query;
-      let events;
+      const upcoming = String(req.query.upcoming || "false") === "true";
+      const artistId = req.query.artistId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
 
-      if (upcoming === 'true') {
-        events = await storage.getUpcomingEvents(parseInt(limit));
-      } else if (artistId) {
-        events = await storage.getEventsByArtist(artistId);
-      } else {
-        events = await storage.getUpcomingEvents(parseInt(limit));
-      }
+      let events;
+      if (upcoming) events = await storage.getUpcomingEvents(limit);
+      else if (artistId) events = await storage.getEventsByArtist(artistId);
+      else events = await storage.getUpcomingEvents(limit);
 
       res.json(events);
     } catch (error: any) {
@@ -460,31 +417,22 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.get('/api/events/:id', optionalAuth, async (req: any, res) => {
+  app.get("/api/events/:id", optionalAuth, async (req: any, res) => {
     try {
       const event = await storage.getEvent(req.params.id);
-      if (!event) {
-        return res.status(404).json({ message: 'Event not found' });
-      }
+      if (!event) return res.status(404).json({ message: "Event not found" });
       res.json(event);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post('/api/events', authenticate, requireRole(['artist']), async (req: any, res) => {
+  app.post("/api/events", authenticate, requireRole(["artist"]), async (req: any, res) => {
     try {
       const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) {
-        return res.status(400).json({ message: 'Artist profile not found' });
-      }
+      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
 
-      const eventData = {
-        ...req.body,
-        artistId: artist.id,
-      };
-
-      const event = await storage.createEvent(eventData);
+      const event = await storage.createEvent({ ...req.body, artistId: artist.id });
       res.json(event);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -495,62 +443,46 @@ export function setupRoutes(app: Express): void {
   // PRODUCT ROUTES
   // ============================================================================
 
-  app.get('/api/products', optionalAuth, async (req: any, res) => {
+  app.get("/api/products", optionalAuth, async (req: any, res) => {
     try {
-      const { artistId, limit = 20 } = req.query;
-      let products;
-
-      if (artistId) {
-        products = await storage.getProductsByArtist(artistId);
-      } else {
-        // Get all active products (implement in storage)
-        products = [];
-      }
-
+      const artistId = req.query.artistId as string | undefined;
+      const limit = Number(req.query.limit ?? 20);
+      const products = artistId ? await storage.getProductsByArtist(artistId) : await storage.getAllActiveProducts?.(limit) ?? [];
       res.json(products);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.get('/api/products/:id', optionalAuth, async (req: any, res) => {
+  app.get("/api/products/:id", optionalAuth, async (req: any, res) => {
     try {
       const product = await storage.getProduct(req.params.id);
-      if (!product) {
-        return res.status(404).json({ message: 'Product not found' });
-      }
+      if (!product) return res.status(404).json({ message: "Product not found" });
       res.json(product);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post('/api/products', authenticate, requireRole(['artist']), upload.array('images', 5), async (req: any, res) => {
+  app.post("/api/products", authenticate, requireRole(["artist"]), upload.array("images", 5), async (req: any, res) => {
     try {
       const artist = await storage.getArtistByUserId(req.user.id);
-      if (!artist) {
-        return res.status(400).json({ message: 'Artist profile not found' });
-      }
+      if (!artist) return res.status(400).json({ message: "Artist profile not found" });
 
-      const files = req.files as Express.Multer.File[];
-      const images = [];
+      const files = (req.files as Express.Multer.File[]) || [];
+      const images: string[] = [];
 
-      // Upload product images
       for (const file of files) {
-        const upload = await cloudinaryService.uploadImage(file.buffer, {
-          folder: 'ruc/products',
-        });
+        const upload = await cloudinaryService.uploadImage(file.buffer, { folder: "ruc/products" });
         images.push(upload.secure_url);
       }
 
-      const productData = {
+      const product = await storage.createProduct({
         ...req.body,
         artistId: artist.id,
         images,
         mainImage: images[0] || null,
-      };
-
-      const product = await storage.createProduct(productData);
+      });
       res.json(product);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -561,20 +493,15 @@ export function setupRoutes(app: Express): void {
   // ORDER & PAYMENT ROUTES
   // ============================================================================
 
-  app.post('/api/orders', authenticate, async (req: any, res) => {
+  app.post("/api/orders", authenticate, async (req: any, res) => {
     try {
-      const orderData = {
+      const order = await storage.createOrder({
         ...req.body,
         buyerId: req.user.id,
-        orderNumber: `RUC-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      };
+        orderNumber: `RUC-${Date.now()}-${Math.random().toString(36).slice(2, 11).toUpperCase()}`,
+      });
 
-      const order = await storage.createOrder(orderData);
-
-      // Send order confirmation email
       await emailService.sendOrderConfirmationEmail(req.user.email, order);
-
-      // Track purchase
       await analyticsService.trackPurchase(order.id, order.totals.total, req.user.id);
 
       res.json(order);
@@ -583,7 +510,7 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.get('/api/orders/me', authenticate, async (req: any, res) => {
+  app.get("/api/orders/me", authenticate, async (req: any, res) => {
     try {
       const orders = await storage.getOrdersByUser(req.user.id);
       res.json(orders);
@@ -596,7 +523,7 @@ export function setupRoutes(app: Express): void {
   // SUBSCRIPTION ROUTES
   // ============================================================================
 
-  app.get('/api/subscriptions/me', authenticate, async (req: any, res) => {
+  app.get("/api/subscriptions/me", authenticate, async (req: any, res) => {
     try {
       const subscriptions = await storage.getSubscriptionsByFan(req.user.id);
       res.json(subscriptions);
@@ -605,79 +532,11 @@ export function setupRoutes(app: Express): void {
     }
   });
 
-  app.post('/api/subscriptions', authenticate, async (req: any, res) => {
+  app.post("/api/subscriptions", authenticate, async (req: any, res) => {
     try {
-      const subscriptionData = {
-        ...req.body,
-        fanId: req.user.id,
-      };
-
-      const subscription = await storage.createSubscription(subscriptionData);
-
-      // Track subscription
-      await analyticsService.trackSubscribe(subscription.artistId, subscription.tier.name, req.user.id);
-
+      const subscription = await storage.createSubscription({ ...req.body, fanId: req.user.id });
+      await analyticsService.trackSubscribe(subscription.artistId.toString(), subscription.tier.name, req.user.id);
       res.json(subscription);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // ANALYTICS ROUTES
-  // ============================================================================
-
-  app.post('/api/analytics/track', optionalAuth, async (req: any, res) => {
-    try {
-      const eventData = {
-        ...req.body,
-        userId: req.user?.id,
-        userAgent: req.headers['user-agent'],
-      };
-
-      await analyticsService.track(eventData);
-      res.json({ message: 'Event tracked successfully' });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get('/api/analytics/dashboard', authenticate, async (req: any, res) => {
-    try {
-      const isArtist = req.user.role === 'artist';
-      const stats = await analyticsService.getDashboardStats(req.user.id, isArtist);
-      res.json(stats);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================================================
-  // ADMIN ROUTES
-  // ============================================================================
-
-  app.get('/api/admin/dashboard', authenticate, requireRole(['admin']), async (req: any, res) => {
-    try {
-      // Get platform-wide statistics
-      const stats = {
-        totalUsers: 0,
-        totalArtists: 0,
-        totalSongs: 0,
-        totalRevenue: 0,
-        // These would need to be implemented in storage
-      };
-
-      res.json(stats);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get('/api/admin/reports', authenticate, requireRole(['admin']), async (req: any, res) => {
-    try {
-      const { status } = req.query;
-      const reports = await storage.getReports(status as string);
-      res.json(reports);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -687,25 +546,17 @@ export function setupRoutes(app: Express): void {
   // FILE UPLOAD ROUTES
   // ============================================================================
 
-  app.post('/api/upload/image', authenticate, upload.single('image'), async (req: any, res) => {
+  app.post("/api/upload/image", authenticate, upload.single("image"), async (req: any, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: 'No file uploaded' });
-      }
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-      const upload = await cloudinaryService.uploadImage(req.file.buffer, {
-        folder: 'ruc/uploads',
-      });
-
-      res.json({
-        url: upload.secure_url,
-        publicId: upload.public_id,
-      });
+      const upload = await cloudinaryService.uploadImage(req.file.buffer, { folder: "ruc/uploads" });
+      res.json({ url: upload.secure_url, publicId: upload.public_id });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Error handling middleware
+  // ------------------------ Error handling ------------------------
   app.use(errorHandler);
 }
