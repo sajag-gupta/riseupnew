@@ -1,11 +1,19 @@
 import { v2 as cloudinary } from "cloudinary";
 
 // ------------------------ Config ------------------------
-cloudinary.config({
+const cloudinaryConfig = {
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "dmt03mwbi",
   api_key: process.env.CLOUDINARY_API_KEY || "191484393995139",
   api_secret: process.env.CLOUDINARY_API_SECRET || "RckmQmNFCp70I1nOVs6FRQIcbrM",
+};
+
+console.log("Cloudinary configuration:", {
+  cloud_name: cloudinaryConfig.cloud_name,
+  api_key: cloudinaryConfig.api_key ? `${cloudinaryConfig.api_key.slice(0, 4)}...` : "NOT SET",
+  api_secret: cloudinaryConfig.api_secret ? "SET" : "NOT SET"
 });
+
+cloudinary.config(cloudinaryConfig);
 
 export interface UploadOptions {
   folder?: string;
@@ -18,11 +26,33 @@ export interface UploadOptions {
 // ------------------------ Helpers ------------------------
 function uploadBuffer(buffer: Buffer, options: UploadOptions): Promise<any> {
   return new Promise((resolve, reject) => {
+    console.log("Starting buffer upload to Cloudinary...", {
+      bufferSize: buffer.length,
+      options: { ...options, transformation: options.transformation ? '[hidden]' : undefined }
+    });
+
     const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
-      if (err) return reject(err);
-      if (!result) return reject(new Error("Cloudinary returned no result"));
+      if (err) {
+        console.error("Cloudinary stream upload error:", {
+          message: err.message,
+          error: err.error,
+          http_code: err.http_code
+        });
+        return reject(err);
+      }
+      if (!result) {
+        console.error("Cloudinary returned no result");
+        return reject(new Error("Cloudinary returned no result"));
+      }
+      console.log("Buffer upload successful:", result.public_id);
       resolve(result);
     });
+
+    stream.on('error', (streamErr) => {
+      console.error("Stream error:", streamErr);
+      reject(streamErr);
+    });
+
     stream.end(buffer);
   });
 }
@@ -41,6 +71,15 @@ export class CloudinaryService {
         ...options,
       };
 
+      console.log("Cloudinary upload options:", {
+        resource_type: uploadOptions.resource_type,
+        folder: uploadOptions.folder,
+        public_id: uploadOptions.public_id,
+        fileType: typeof file,
+        fileSize: file instanceof Buffer ? file.length : file.length,
+        mimetype
+      });
+
       let result;
 
       if (typeof file === "string") {
@@ -50,6 +89,14 @@ export class CloudinaryService {
         // Buffer → use stream
         result = await uploadBuffer(file, uploadOptions);
       }
+
+      console.log("Cloudinary upload successful:", {
+        public_id: result.public_id,
+        resource_type: result.resource_type,
+        format: result.format,
+        bytes: result.bytes,
+        duration: result.duration
+      });
 
       return {
         url: result.url,
@@ -64,9 +111,14 @@ export class CloudinaryService {
         original_filename: result.original_filename,
         etag: result.etag,
       };
-    } catch (error) {
-      console.error("Cloudinary upload error:", error);
-      throw new Error("Failed to upload file to Cloudinary");
+    } catch (error: any) {
+      console.error("Cloudinary upload error:", {
+        message: error.message,
+        error: error.error,
+        http_code: error.http_code,
+        stack: error.stack
+      });
+      throw new Error(`Failed to upload file to Cloudinary: ${error.message}`);
     }
   }
 

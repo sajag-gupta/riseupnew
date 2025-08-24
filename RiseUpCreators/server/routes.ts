@@ -22,7 +22,7 @@ import { emailService } from "./services/email";
 import { analyticsService } from "./services/analytics";
 import { z } from "zod";
 import multer from "multer";
-import cloudinary from "cloudinary";
+import { User, Artist, Song, Event, Follow } from "@shared/schema";
 
 
 // ------------------------ Config ------------------------
@@ -81,7 +81,7 @@ export function setupRoutes(app: Express): void {
   }
 
   // ============================================================================
-  // AUTH ROUTES
+  // AUTHROUTES
   // ============================================================================
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -149,6 +149,68 @@ export function setupRoutes(app: Express): void {
   app.post("/api/auth/logout", (_req, res) => {
     res.clearCookie(JWT_COOKIE_NAME, { ...cookieOpts, maxAge: 0 });
     res.status(204).end();
+  });
+
+  // ============================================================================
+  // ARTIST ROUTES
+  // ============================================================================
+  app.get("/api/artists/:id", optionalAuth, async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.params.id);
+      if (!artist) {
+        // Try finding by artist ID directly
+        const artistById = await storage.getArtist(req.params.id);
+        if (!artistById) {
+          return res.status(404).json({ message: "Artist not found" });
+        }
+        
+        if (req.user) {
+          await analyticsService.trackEventGeneric(
+            "view_artist",
+            "artist",
+            { artistId: artistById._id },
+            req.user.id
+          );
+        }
+        
+        return res.json(artistById);
+      }
+
+      if (req.user) {
+        await analyticsService.trackEventGeneric(
+          "view_artist",
+          "artist", 
+          { artistId: artist._id },
+          req.user.id
+        );
+      }
+
+      res.json(artist);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ARTISTS LIST ROUTE
+  // ============================================================================
+  app.get("/api/artists", optionalAuth, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const featured = req.query.featured === "true";
+      
+      let artists;
+      if (featured) {
+        artists = await storage.getFeaturedArtists(limit);
+      } else {
+        artists = await storage.searchArtists("", limit);
+      }
+      
+      res.json(artists);
+    } catch (error: any) {
+      console.error("Error fetching artists:", error);
+      res.status(500).json({ message: "Failed to fetch artists", error: error.message });
+    }
   });
 
   // ============================================================================
@@ -310,6 +372,52 @@ export function setupRoutes(app: Express): void {
   // ============================================================================
   // SONG ROUTES (Songs + Likes + Follows Integrated)
   // ============================================================================
+  
+  // ---------------- RECENT SONGS ----------------
+  app.get("/api/songs/recent", optionalAuth, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      const songs = await storage.getSongs({
+        visibility: "public",
+        limit,
+        sortBy: "createdAt",
+        sortOrder: "desc"
+      });
+      res.json(songs);
+    } catch (error: any) {
+      console.error("Error fetching recent songs:", error);
+      res.status(500).json({ message: "Failed to fetch recent songs", error: error.message });
+    }
+  });
+
+  // ---------------- RECOMMENDED SONGS ----------------
+  app.get("/api/songs/recommended", authenticateToken, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+      // For now, return random songs - can implement ML recommendations later
+      const songs = await storage.getSongs({
+        visibility: "public",
+        limit: limit * 2 // Get more to randomize
+      });
+      
+      // Simple shuffle for recommendations
+      const shuffled = songs.sort(() => 0.5 - Math.random()).slice(0, limit);
+      res.json(shuffled);
+    } catch (error: any) {
+      console.error("Error fetching recommended songs:", error);
+      res.status(500).json({ message: "Failed to fetch recommended songs", error: error.message });
+    }
+  });
+
+  // ---------------- USER FOLLOWING ----------------
+  app.get("/api/users/following", authenticateToken, async (req: any, res) => {
+    try {
+      const followedArtists = await storage.getFollowedArtists(req.user.id);
+      res.json(followedArtists);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
   // ---------------- UPLOAD SONG ----------------
 app.post(
   "/api/songs/upload",
@@ -338,6 +446,12 @@ app.post(
       if (!audioFile) {
         return res.status(400).json({ message: "Audio file is required" });
       }
+
+      // Validate audio file type
+      if (!audioFile.mimetype.startsWith("audio/")) {
+        return res.status(400).json({ message: "Invalid audio file type" });
+      }
+
       if (!req.body.songData) {
         return res.status(400).json({ message: "Song metadata is required" });
       }
@@ -349,7 +463,13 @@ app.post(
         return res.status(400).json({ message: "Invalid songData JSON" });
       }
 
+      // Validate required fields
+      if (!songData.title) {
+        return res.status(400).json({ message: "Song title is required" });
+      }
+
       // ---------------- Upload Audio ----------------
+      console.log("Starting audio upload to Cloudinary...");
       let audioUpload;
       try {
         audioUpload = await cloudinaryService.uploadAudio(
@@ -357,58 +477,69 @@ app.post(
           audioFile.mimetype,
           {
             folder: "ruc/music",
-            public_id: `song_${Date.now()}`,
+            public_id: `song_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           }
         );
+        console.log("Audio upload successful:", audioUpload.public_id);
       } catch (err: any) {
-        console.error("Cloudinary audio upload error:", err);
+        console.error("Cloudinary audio upload error:", {
+          message: err.message,
+          stack: err.stack,
+          cloudinaryError: err.error || err.response?.data,
+          fileInfo: {
+            size: audioFile.size,
+            mimetype: audioFile.mimetype,
+            originalname: audioFile.originalname
+          }
+        });
         return res.status(500).json({
           message: "Failed to upload audio to Cloudinary",
-          error:
-            process.env.NODE_ENV === "development"
-              ? err?.message || err?.error || JSON.stringify(err)
-              : "Internal server error",
+          error: process.env.NODE_ENV === "development" ? err.message : "Internal server error",
         });
       }
 
       // ---------------- Upload Artwork ----------------
       let artworkUpload = null;
       if (artworkFile) {
+        // Validate artwork file type
+        if (!artworkFile.mimetype.startsWith("image/")) {
+          return res.status(400).json({ message: "Invalid artwork file type" });
+        }
+
         try {
+          console.log("Starting artwork upload to Cloudinary...");
           artworkUpload = await cloudinaryService.uploadArtwork(
             artworkFile.buffer,
             artworkFile.mimetype,
             {
               folder: "ruc/artwork",
-              public_id: `artwork_${Date.now()}`,
-              transformation: [{ width: 1000, height: 1000, crop: "fill" }],
+              public_id: `artwork_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             }
           );
+          console.log("Artwork upload successful:", artworkUpload.public_id);
         } catch (err: any) {
           console.error("Cloudinary artwork upload error:", err);
-          return res.status(500).json({
-            message: "Failed to upload artwork to Cloudinary",
-            error:
-              process.env.NODE_ENV === "development"
-                ? err?.message || err?.error || JSON.stringify(err)
-                : "Internal server error",
-          });
+          // Don't fail the entire upload if artwork fails
+          console.warn("Artwork upload failed, continuing without artwork");
         }
       }
 
       // ---------------- Create Song in DB ----------------
+      const duration = audioUpload.duration || songData.duration || 180; // Default to 3 minutes if not available
+
       const newSong = await storage.createSong({
         title: songData.title,
         artistId: artist._id,
-        genre: songData.genre,
+        genre: songData.genre || "Unknown",
         subGenres: songData.subGenres || [],
-        duration: songData.duration,
+        duration: duration,
         releaseDate: songData.releaseDate ? new Date(songData.releaseDate) : new Date(),
         files: {
           audioUrl: audioUpload.secure_url,
           audioFileId: audioUpload.public_id,
           artworkUrl: artworkUpload?.secure_url,
           artworkFileId: artworkUpload?.public_id,
+          waveformData: audioUpload.waveform || [],
         },
         metadata: songData.metadata || {},
         visibility: songData.visibility || "public",
@@ -418,15 +549,18 @@ app.post(
         },
       });
 
+      console.log("Song created successfully:", newSong._id);
       return res.status(201).json(newSong);
     } catch (error: any) {
-      console.error("Song upload error:", error);
+      console.error("Song upload error:", {
+        message: error.message,
+        stack: error.stack,
+        userId: req.user?.id,
+        files: req.files ? Object.keys(req.files) : "no files"
+      });
       return res.status(500).json({
         message: "Unexpected error during song upload",
-        error:
-          process.env.NODE_ENV === "development"
-            ? error.message
-            : "Internal server error",
+        error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
       });
     }
   }
@@ -468,14 +602,48 @@ app.post(
   // ---------------- FETCH SONGS ----------------
   app.get("/api/songs", optionalAuth, async (req: any, res) => {
     try {
-      const trending = String(req.query.trending || "false") === "true";
-      const artistId = req.query.artistId as string | undefined;
-      const limit = Number(req.query.limit ?? 20);
+      await analyticsService.trackEventGeneric("page_view", req.user?.id, {
+        page: "songs_browse",
+      });
+
+      const { genre, limit = "20", trending } = req.query;
+      const filter: any = { visibility: "public" };
+
+      if (genre && genre !== "all") {
+        filter.genre = genre;
+      }
 
       let songs;
-      if (trending) songs = await storage.getTrendingSongs(limit);
-      else if (artistId) songs = await storage.getSongsByArtist(artistId, limit);
-      else songs = await storage.getTrendingSongs(limit);
+      try {
+        if (trending === "true") {
+          songs = await storage.getSongs({
+            ...filter,
+            limit: parseInt(limit as string),
+            sortBy: "createdAt",
+            sortOrder: "desc"
+          });
+        } else {
+          songs = await storage.getSongs({
+            ...filter,
+            limit: parseInt(limit as string),
+            sortBy: "createdAt", 
+            sortOrder: "desc"
+          });
+        }
+      } catch (error: any) {
+        console.error("Error fetching songs:", error);
+        // Fallback to basic song fetch if advanced options fail
+        songs = await storage.searchSongs("", parseInt(limit as string));
+      }
+
+      if (trending === "true") {
+        // Sort by a combination of play count and recency for trending
+        songs = songs.sort((a, b) => {
+          const aScore = (a.analytics?.playCount || 0) + (a.analytics?.likeCount || 0) * 2;
+          const bScore = (b.analytics?.playCount || 0) + (b.analytics?.likeCount || 0) * 2;
+          return bScore - aScore;
+        });
+      }
 
       res.json(songs);
     } catch (error: any) {
@@ -1351,7 +1519,7 @@ app.post(
   });
 
   // ============================================================================
-  // AD ROUTES
+  // ADROUTES
   // ============================================================================
   app.get("/api/ads", optionalAuth, async (_req: any, res) => {
     try {
@@ -1401,7 +1569,7 @@ app.post(
   });
 
   // ============================================================================
-  // FOLLOW ROUTES
+  // FOLLOWROUTES
   // ============================================================================
   app.get("/api/users/:id/following", authenticateToken, async (req: any, res) => {
     try {
@@ -1505,7 +1673,131 @@ app.post(
   });
 
   // ============================================================================
-  // SEARCH ROUTES
+  // DISCOVER ROUTES
+  // ============================================================================
+  app.get("/api/discover/trending", optionalAuth, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const songs = await storage.getSongs({
+        visibility: "public",
+        limit,
+        sortBy: "createdAt",
+        sortOrder: "desc"
+      });
+      
+      // Sort by engagement for trending
+      const trending = songs.sort((a, b) => {
+        const aScore = (a.analytics?.playCount || 0) + (a.analytics?.likeCount || 0) * 3;
+        const bScore = (b.analytics?.playCount || 0) + (b.analytics?.likeCount || 0) * 3;
+        return bScore - aScore;
+      });
+      
+      res.json(trending);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/genres", async (req: any, res) => {
+    try {
+      const genres = [
+        "Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Country", 
+        "Reggae", "Alternative", "Indie", "Soul", "Funk", "Gospel", "Blues"
+      ];
+      res.json(genres);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/artists/featured", optionalAuth, async (req: any, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 6;
+      const artists = await storage.searchArtists("", limit * 2);
+      
+      // Simple shuffle for featured artists
+      const featured = artists.sort(() => 0.5 - Math.random()).slice(0, limit);
+      res.json(featured);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // ANALYTICS DASHBOARD ROUTES
+  // ============================================================================
+  app.get("/api/analytics/dashboard", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) return res.status(404).json({ message: "Artist profile not found" });
+
+      const songs = await storage.getSongsByArtist(artist._id);
+      const totalPlays = songs.reduce((sum, song) => sum + (song.analytics?.playCount || 0), 0);
+      const totalLikes = songs.reduce((sum, song) => sum + (song.analytics?.likeCount || 0), 0);
+      
+      const analytics = {
+        totalSongs: songs.length,
+        totalPlays,
+        totalLikes,
+        monthlyListeners: artist.stats?.monthlyListeners || 0,
+        recentActivity: songs.slice(0, 5).map(song => ({
+          songId: song._id,
+          title: song.title,
+          plays: song.analytics?.playCount || 0,
+          likes: song.analytics?.likeCount || 0
+        }))
+      };
+      
+      res.json(analytics);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/analytics/revenue", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      // Mock revenue data for now
+      const revenue = {
+        thisMonth: 0,
+        lastMonth: 0,
+        total: 0,
+        breakdown: {
+          streaming: 0,
+          merchandise: 0,
+          subscriptions: 0,
+          tips: 0
+        }
+      };
+      res.json(revenue);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/songs/my-music", authenticateToken, requireRole(["artist"]), async (req: any, res) => {
+    try {
+      const artist = await storage.getArtistByUserId(req.user.id);
+      if (!artist) return res.status(404).json({ message: "Artist profile not found" });
+
+      const songs = await storage.getSongsByArtist(artist._id);
+      
+      // Return in the format expected by frontend
+      const stats = {
+        totalSongs: songs.length,
+        totalPlays: songs.reduce((sum, song) => sum + (song.analytics?.playCount || 0), 0),
+        totalLikes: songs.reduce((sum, song) => sum + (song.analytics?.likeCount || 0), 0),
+        monthlyListeners: artist.stats?.monthlyListeners || 0,
+      };
+      
+      res.json({ songs, stats });
+    } catch (error: any) {
+      console.error("Error fetching artist music:", error);
+      res.status(500).json({ message: "Failed to fetch your music", error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // SEARCHROUTES
   // ============================================================================
   app.get("/api/search", optionalAuth, async (req: any, res) => {
     try {

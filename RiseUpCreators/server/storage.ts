@@ -235,7 +235,13 @@ export class DatabaseStorage implements IStorage {
     return this.Artist.findByIdAndUpdate(id, updates, { new: true });
   }
   async getFeaturedArtists(limit = 10): Promise<IArtist[]> {
-    return this.Artist.find({ featured: true }).sort({ trendingScore: -1 }).limit(limit);
+    // Return random artists if no featured flag exists
+    const count = await this.Artist.countDocuments();
+    if (count === 0) return [];
+    
+    // Get random artists as featured
+    const randomSkip = Math.floor(Math.random() * Math.max(1, count - limit));
+    return this.Artist.find({}).skip(randomSkip).limit(limit);
   }
   async searchArtists(query: string, limit = 20): Promise<IArtist[]> {
     return this.Artist.find({ name: { $regex: query, $options: "i" } })
@@ -272,6 +278,32 @@ export class DatabaseStorage implements IStorage {
         { genre: { $regex: query, $options: "i" } },
       ],
     }).limit(limit);
+  }
+  
+  async getSongs(options: {
+    visibility?: string;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    genre?: string;
+  } = {}): Promise<ISong[]> {
+    const {
+      visibility = "public",
+      limit = 20,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      genre
+    } = options;
+
+    const query: any = { visibility };
+    if (genre && genre !== "all") {
+      query.genre = genre;
+    }
+
+    const sortObj: any = {};
+    sortObj[sortBy] = sortOrder === "desc" ? -1 : 1;
+
+    return this.Song.find(query).sort(sortObj).limit(limit);
   }
 
   // ---------------- ALBUM ----------------
@@ -406,7 +438,7 @@ export class DatabaseStorage implements IStorage {
   async getTicketsByUser(userId: string): Promise<ITicket[]> {
     return this.Ticket.find({ buyerId: userId }).sort({ createdAt: -1 });
   }
-  async getTicketsByEvent(eventId: string): Promise<ITicket[]> {
+  async getTicketsByEvent(eventId: string): Promise<ITicket[]>{
     return this.Ticket.find({ eventId }).sort({ createdAt: -1 });
   }
   async createTicket(ticket: InsertTicket): Promise<ITicket> {
@@ -543,7 +575,7 @@ export class DatabaseStorage implements IStorage {
   async getAd(id: string): Promise<IAd | null> {
     return this.Ad.findById(id);
   }
-  async getActiveAds(): Promise<IAd[]> {
+  async getActiveAds(): Promise<IAd[]>{
     return this.Ad.find({ status: "active" }).sort({ createdAt: -1 });
   }
   async createAd(ad: InsertAd): Promise<IAd> {

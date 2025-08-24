@@ -40,7 +40,7 @@ export class AnalyticsService {
           metadata: event.metadata,
         },
         context: {
-          page: event.page || "",
+          page: event.page || "unknown",
           userAgent: event.userAgent,
           deviceType: event.deviceType,
           location: event.location,
