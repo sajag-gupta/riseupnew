@@ -29,13 +29,18 @@ export default function ArtistDashboard() {
     },
   });
 
-  const { data: songs = [], isLoading: songsLoading } = useQuery({
-    queryKey: ["/api/songs/my-music"],
+  const { data: myMusicData = { songs: [], stats: {} }, isLoading: songsLoading } = useQuery({
+    queryKey: ["/api/artists/my-music"],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/songs/my-music");
+      const response = await apiRequest("GET", "/api/artists/my-music");
       return response.json();
     },
+    retry: 3,
+    staleTime: 5 * 60 * 1000,
   });
+
+  const songs = myMusicData.songs || [];
+  const musicStats = myMusicData.stats || {};
 
   const { data: revenue = {}, isLoading: revenueLoading } = useQuery({
     queryKey: ["/api/analytics/revenue"],
@@ -56,14 +61,14 @@ export default function ArtistDashboard() {
   const statCards = [
     {
       title: "Total Plays",
-      value: stats?.totalPlays?.toLocaleString() || "0",
+      value: (musicStats?.totalPlays || stats?.totalPlays || 0).toLocaleString(),
       icon: Play,
       change: "+12.5%",
       changeType: "positive" as const,
     },
     {
       title: "Followers",
-      value: stats?.totalFollowers?.toLocaleString() || "0",
+      value: (stats?.totalFollowers || 0).toLocaleString(),
       icon: Users,
       change: "+8.2%",
       changeType: "positive" as const,

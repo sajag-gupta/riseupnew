@@ -25,44 +25,69 @@ export default function Home() {
   const { user } = useAuth();
 
   // Fetch personalized content
-  const { data: recentSongs = [], isLoading: recentLoading } = useQuery({
+  const { data: recentSongs = [], isLoading: recentLoading, isError: recentError } = useQuery({
     queryKey: ["/api/songs/recent"],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/songs/recent");
+      const response = await apiRequest("GET", "/api/songs/recent?limit=6");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch recent songs: ${response.status}`);
+      }
       return response.json();
     },
+    retry: 2,
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: recommendedSongs = [], isLoading: recommendedLoading } = useQuery({
+  const { data: recommendedSongs = [], isLoading: recommendedLoading, isError: recommendedError } = useQuery({
     queryKey: ["/api/songs/recommended"],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/songs/recommended");
+      const response = await apiRequest("GET", "/api/songs/recommended?limit=6");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch recommended songs: ${response.status}`);
+      }
       return response.json();
     },
+    retry: 2,
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: followedArtists = [], isLoading: artistsLoading } = useQuery({
+  const { data: followedArtists = [], isLoading: artistsLoading, isError: artistsError } = useQuery({
     queryKey: ["/api/users/following"],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/users/following");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch followed artists: ${response.status}`);
+      }
       return response.json();
     },
+    retry: 2,
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: trendingSongs = [], isLoading: trendingLoading } = useQuery({
+  const { data: trendingSongs = [], isLoading: trendingLoading, isError: trendingError } = useQuery({
     queryKey: ["/api/songs", { trending: true }],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/songs?trending=true&limit=8");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch trending songs: ${response.status}`);
+      }
       return response.json();
     },
+    retry: 2,
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: upcomingEvents = [], isLoading: eventsLoading } = useQuery({
+  const { data: upcomingEvents = [], isLoading: eventsLoading, isError: eventsError } = useQuery({
     queryKey: ["/api/events/upcoming"],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/events?upcoming=true&limit=4");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch upcoming events: ${response.status}`);
+      }
       return response.json();
     },
+    retry: 2,
+    staleTime: 5 * 60 * 1000,
   });
 
   const handleLikeSong = async (songId: string) => {
@@ -142,6 +167,16 @@ export default function Home() {
 
         {recentLoading ? (
           <LoadingGrid count={4} />
+        ) : recentError ? (
+          <EmptyState
+            icon={<Clock className="w-16 h-16" />}
+            title="Failed to Load Recent Songs"
+            description="There was an error loading your recently played tracks. Please try again later."
+            action={{
+              label: "Try Again",
+              onClick: () => window.location.reload(),
+            }}
+          />
         ) : recentSongs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {recentSongs.slice(0, 4).map((song: Song) => (
@@ -166,38 +201,52 @@ export default function Home() {
       </section>
 
       {/* Your Artists */}
-      {followedArtists.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold flex items-center" data-testid="your-artists-title">
-              <Users className="mr-2 w-6 h-6 text-primary" />
-              Your Artists
-            </h2>
-            <Button variant="ghost" className="text-primary">
-              View All
-            </Button>
-          </div>
+      <section>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold flex items-center" data-testid="your-artists-title">
+            <Users className="mr-2 w-6 h-6 text-primary" />
+            Your Artists
+          </h2>
+          <Button variant="ghost" className="text-primary">
+            View All
+          </Button>
+        </div>
 
-          {artistsLoading ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="loading-pulse h-64 rounded-2xl" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {followedArtists.slice(0, 6).map((artist: Artist) => (
-                <ArtistCard
-                  key={artist.id}
-                  artist={artist}
-                  isFollowing={true}
-                  onFollow={() => handleFollowArtist(artist.id)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+        {artistsLoading ? (
+          <LoadingGrid count={6} />
+        ) : artistsError ? (
+          <EmptyState
+            icon={<Users className="w-16 h-16" />}
+            title="Failed to Load Your Artists"
+            description="There was an error loading the artists you follow. Please try again later."
+            action={{
+              label: "Try Again",
+              onClick: () => window.location.reload(),
+            }}
+          />
+        ) : followedArtists.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+            {followedArtists.slice(0, 6).map((artist: Artist) => (
+              <ArtistCard
+                key={artist.id}
+                artist={artist}
+                isFollowing={true}
+                onFollow={() => handleFollowArtist(artist.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Users className="w-16 h-16" />}
+            title="Not Following Any Artists"
+            description="Find and follow your favorite artists to see them here."
+            action={{
+              label: "Explore Artists",
+              onClick: () => window.location.href = "/artists",
+            }}
+          />
+        )}
+      </section>
 
       {/* Recommended For You */}
       <section>
@@ -213,11 +262,21 @@ export default function Home() {
 
         {recommendedLoading ? (
           <LoadingGrid count={6} />
+        ) : recommendedError ? (
+          <EmptyState
+            icon={<Star className="w-16 h-16" />}
+            title="Failed to Load Recommendations"
+            description="There was an error loading your recommendations. Please try again later."
+            action={{
+              label: "Try Again",
+              onClick: () => window.location.reload(),
+            }}
+          />
         ) : recommendedSongs.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {recommendedSongs.slice(0, 6).map((song: Song) => (
               <SongCard
-                key={song.id}
+                key={`recommended-${song.id}`}
                 song={song}
                 onLike={() => handleLikeSong(song.id)}
               />
@@ -250,6 +309,16 @@ export default function Home() {
 
         {trendingLoading ? (
           <LoadingGrid count={8} />
+        ) : trendingError ? (
+          <EmptyState
+            icon={<TrendingUp className="w-16 h-16" />}
+            title="Failed to Load Trending Songs"
+            description="There was an error loading trending songs. Please try again later."
+            action={{
+              label: "Try Again",
+              onClick: () => window.location.reload(),
+            }}
+          />
         ) : trendingSongs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {trendingSongs.slice(0, 8).map((song: Song, index) => (
@@ -274,33 +343,47 @@ export default function Home() {
       </section>
 
       {/* Upcoming Events */}
-      {upcomingEvents.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold flex items-center" data-testid="upcoming-events-title">
-              <Calendar className="mr-2 w-6 h-6 text-primary" />
-              Upcoming Events
-            </h2>
-            <Button variant="ghost" className="text-primary">
-              View All
-            </Button>
-          </div>
+      <section>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold flex items-center" data-testid="upcoming-events-title">
+            <Calendar className="mr-2 w-6 h-6 text-primary" />
+            Upcoming Events
+          </h2>
+          <Button variant="ghost" className="text-primary">
+            View All
+          </Button>
+        </div>
 
-          {eventsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="loading-pulse h-80 rounded-2xl" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {upcomingEvents.slice(0, 4).map((event: Event) => (
-                <EventCard key={event.id} event={event} />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+        {eventsLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="loading-pulse h-80 rounded-2xl" />
+            ))}
+          </div>
+        ) : eventsError ? (
+          <EmptyState
+            icon={<Calendar className="w-16 h-16" />}
+            title="Failed to Load Upcoming Events"
+            description="There was an error loading upcoming events. Please try again later."
+            action={{
+              label: "Try Again",
+              onClick: () => window.location.reload(),
+            }}
+          />
+        ) : upcomingEvents.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {upcomingEvents.slice(0, 4).map((event: Event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Calendar className="w-16 h-16" />}
+            title="No Upcoming Events"
+            description="Check back later for upcoming events."
+          />
+        )}
+      </section>
 
       {/* Premium Upgrade CTA */}
       {user?.subscription?.isPremium !== true && (

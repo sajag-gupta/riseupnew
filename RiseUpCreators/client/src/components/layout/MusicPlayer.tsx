@@ -40,6 +40,7 @@ export default function MusicPlayer() {
     setVolume,
     toggleShuffle,
     toggleRepeat,
+    setIsPlaying
   } = usePlayerStore();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -51,17 +52,17 @@ export default function MusicPlayer() {
     if (typeof window !== 'undefined') {
       audioRef.current = new Audio();
       audioRef.current.preload = 'metadata';
-      
+
       const audio = audioRef.current;
-      
+
       const handleTimeUpdate = () => {
         usePlayerStore.getState().setCurrentTime(audio.currentTime);
       };
-      
+
       const handleLoadedMetadata = () => {
         usePlayerStore.getState().setDuration(audio.duration);
       };
-      
+
       const handleEnded = () => {
         next();
       };
@@ -121,8 +122,36 @@ export default function MusicPlayer() {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const togglePlayPause = async () => {
+    if (!audioRef.current || !currentSong) return;
+
+    try {
+      if (isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        // Ensure the audio source is set
+        if (audioRef.current.src !== currentSong.files?.audioUrl) {
+          audioRef.current.src = currentSong.files?.audioUrl || '';
+          audioRef.current.load();
+        }
+
+        await audioRef.current.play();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Playback error:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  // Always render the player container, but only show it when there's a song
   if (!currentSong) {
-    return null;
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-40" style={{ display: 'none' }}>
+        {/* Hidden player container */}
+      </div>
+    );
   }
 
   return (
@@ -178,7 +207,7 @@ export default function MusicPlayer() {
               >
                 <Shuffle className="w-4 h-4" />
               </Button>
-              
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -188,9 +217,9 @@ export default function MusicPlayer() {
               >
                 <SkipBack className="w-5 h-5" />
               </Button>
-              
+
               <Button
-                onClick={isPlaying ? pause : play}
+                onClick={togglePlayPause}
                 className="w-10 h-10 red-gradient rounded-full hover:shadow-red-glow"
                 data-testid="play-pause-button"
               >
@@ -200,7 +229,7 @@ export default function MusicPlayer() {
                   <Play className="w-5 h-5 text-white ml-0.5" />
                 )}
               </Button>
-              
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -210,7 +239,7 @@ export default function MusicPlayer() {
               >
                 <SkipForward className="w-5 h-5" />
               </Button>
-              
+
               <Button
                 variant="ghost"
                 size="sm"

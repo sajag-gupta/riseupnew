@@ -13,6 +13,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 
 // ------------------------ Validation ------------------------
 const uploadSchema = z.object({
@@ -36,6 +38,8 @@ export default function UploadMusic() {
   const [artworkFile, setArtworkFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState("single");
   const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const form = useForm<UploadForm>({
     resolver: zodResolver(uploadSchema),
@@ -92,11 +96,15 @@ export default function UploadMusic() {
     formData.append("audioFile", audioFile);
     if (artworkFile) formData.append("artworkFile", artworkFile);
 
+    // Get audio duration (approximate based on file size and bitrate estimation)
+    const estimatedDuration = Math.round((audioFile.size * 8) / (128 * 1000)) || 180; // Default 3 minutes
+
     // Build songData for backend
     const payload: any = {
       title: data.title,
-      genre: data.genre,
+      genre: data.genre || "Unknown",
       description: data.description,
+      duration: estimatedDuration,
       releaseDate: data.releaseDate
         ? new Date(data.releaseDate).toISOString()
         : new Date().toISOString(),
@@ -105,6 +113,10 @@ export default function UploadMusic() {
         isMonetized: data.isMonetized,
         adEnabled: data.adEnabled,
       },
+      metadata: {
+        tags: [],
+        mood: "Unknown"
+      }
     };
 
     if (data.isMonetized && data.price !== undefined && !isNaN(data.price)) {
@@ -115,6 +127,13 @@ export default function UploadMusic() {
 
     const token = localStorage.getItem("token") || localStorage.getItem("authToken");
     if (!token) throw new Error("No token found");
+
+    console.log("Starting song upload:", {
+      title: data.title,
+      audioFileSize: audioFile.size,
+      audioFileType: audioFile.type,
+      hasArtwork: !!artworkFile
+    });
 
     // ---------- Use XMLHttpRequest instead of fetch ----------
     const xhr = new XMLHttpRequest();
@@ -135,7 +154,15 @@ export default function UploadMusic() {
         const resJson = JSON.parse(xhr.responseText || "{}");
         if (xhr.status >= 200 && xhr.status < 300) {
           setUploadProgress(100);
-          toast({ title: "Upload successful", description: `${resJson.title} uploaded.` });
+          toast({ title: "Upload successful", description: `${resJson.title} uploaded successfully!` });
+
+          // Invalidate queries to refresh data
+          queryClient.invalidateQueries({ queryKey: ["/api/artists/my-music"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/songs/my-music"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/songs/recent"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/songs/recommended"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/discover/trending"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
 
           // Reset form
           form.reset({ visibility: "public", isMonetized: true, adEnabled: true });
@@ -143,22 +170,43 @@ export default function UploadMusic() {
           setArtworkFile(null);
           setUploadProgress(0);
         } else {
-          throw new Error(resJson.error || resJson.message || "Upload failed");
+          console.error("Upload failed:", {
+            status: xhr.status,
+            response: xhr.responseText,
+            parsedResponse: resJson
+          });
+          throw new Error(resJson.error || resJson.message || `Upload failed with status ${xhr.status}`);
         }
       } catch (err: any) {
-        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+        console.error("Upload response error:", err);
+        toast({ 
+          title: "Upload failed", 
+          description: err.message || "Failed to process server response", 
+          variant: "destructive" 
+        });
       } finally {
         setIsUploading(false);
       }
     };
 
-    xhr.onerror = () => {
+    xhr.onerror = (error) => {
+      console.error("Network error during upload:", error);
       toast({ title: "Upload failed", description: "Network or server error", variant: "destructive" });
       setIsUploading(false);
     };
 
+    xhr.ontimeout = () => {
+      console.error("Upload timeout");
+      toast({ title: "Upload failed", description: "Request timed out", variant: "destructive" });
+      setIsUploading(false);
+    };
+
+    // Set timeout to 5 minutes
+    xhr.timeout = 300000;
+
     xhr.send(formData);
   } catch (err: any) {
+    console.error("Upload preparation error:", err);
     toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     setIsUploading(false);
   }

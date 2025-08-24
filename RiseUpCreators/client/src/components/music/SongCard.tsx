@@ -32,18 +32,23 @@ export function SongCard({
   showArtist = true,
   className = "",
 }: SongCardProps) {
-  const { currentSong, isPlaying, play, pause, addToQueue } = usePlayerStore();
+  const { currentSong, isPlaying, playTrack, pause } = usePlayerStore();
   const [isHovered, setIsHovered] = useState(false);
 
   const isCurrentSong = currentSong?.id === song.id;
   const isCurrentlyPlaying = isCurrentSong && isPlaying;
 
   const handlePlayPause = () => {
-    if (isCurrentSong) {
-      isPlaying ? pause() : play();
+    console.log('Playing song:', song.title, 'Audio URL:', song.files?.audioUrl);
+    if (currentSong?.id === song.id && isPlaying) {
+      pause();
     } else {
-      addToQueue([song]);
-      play();
+      // Ensure the song has a valid audio URL before playing
+      if (song.files?.audioUrl) {
+        playTrack(song, [song]);
+      } else {
+        console.error('No audio URL available for song:', song.title);
+      }
     }
   };
 

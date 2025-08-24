@@ -50,7 +50,7 @@ export default function Sidebar() {
 
   const artistCreatorLinks = [
     { href: "/upload", icon: Upload, label: "Upload Music" },
-    { href: "/my-music", icon: Music, label: "My Music" },
+    { href: "/artist/mymusic", icon: Music, label: "My Music" },
     { href: "/my-merch", icon: ShoppingBag, label: "My Merch" },
     { href: "/my-events", icon: Calendar, label: "My Events" },
     { href: "/analytics", icon: BarChart3, label: "Analytics" },
@@ -78,8 +78,8 @@ export default function Sidebar() {
             <Button
               variant={isActive(link.href) ? "secondary" : "ghost"}
               className={`w-full justify-start ${
-                isActive(link.href) 
-                  ? "bg-accent text-accent-foreground" 
+                isActive(link.href)
+                  ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               }`}
               data-testid={`sidebar-${link.label.toLowerCase().replace(' ', '-')}`}

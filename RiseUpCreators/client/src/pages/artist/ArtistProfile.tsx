@@ -37,10 +37,62 @@ export default function ArtistProfile() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("music");
 
-  const { data: artistData, isLoading } = useQuery({
+  const { data: artistData, isLoading: artistLoading, error: artistError } = useQuery({
     queryKey: ["/api/artists", artistId],
     queryFn: async () => {
+      if (!artistId) {
+        throw new Error("Artist ID is required");
+      }
       const response = await apiRequest("GET", `/api/artists/${artistId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch artist: ${response.status}`);
+      }
+      return response.json();
+    },
+    enabled: !!artistId,
+    retry: 2,
+  });
+
+  const { data: songs = [], isLoading: songsLoading, error: songsError } = useQuery<Song[]>({
+    queryKey: ["/api/artists", artistId, "songs"],
+    queryFn: async () => {
+      if (!artistId) {
+        return [];
+      }
+      const response = await apiRequest("GET", `/api/artists/${artistId}/songs`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch songs: ${response.status}`);
+      }
+      return response.json();
+    },
+    enabled: !!artistId,
+  });
+
+  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery<Event[]>({
+    queryKey: ["/api/artists", artistId, "events"],
+    queryFn: async () => {
+      if (!artistId) {
+        return [];
+      }
+      const response = await apiRequest("GET", `/api/artists/${artistId}/events`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch events: ${response.status}`);
+      }
+      return response.json();
+    },
+    enabled: !!artistId,
+  });
+
+  const { data: products = [], isLoading: productsLoading, error: productsError } = useQuery<Product[]>({
+    queryKey: ["/api/artists", artistId, "products"],
+    queryFn: async () => {
+      if (!artistId) {
+        return [];
+      }
+      const response = await apiRequest("GET", `/api/artists/${artistId}/products`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch products: ${response.status}`);
+      }
       return response.json();
     },
     enabled: !!artistId,
@@ -48,6 +100,9 @@ export default function ArtistProfile() {
 
   const followMutation = useMutation({
     mutationFn: async () => {
+      if (!artistId) {
+        throw new Error("Artist ID is required");
+      }
       if (artistData?.isFollowing) {
         return apiRequest("DELETE", `/api/artists/${artistId}/follow`);
       } else {
@@ -59,7 +114,7 @@ export default function ArtistProfile() {
     },
   });
 
-  if (isLoading) {
+  if (artistLoading || songsLoading || eventsLoading || productsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner size="lg" />
@@ -67,23 +122,28 @@ export default function ArtistProfile() {
     );
   }
 
-  if (!artistData) {
+  if (artistError || !artistData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <EmptyState
-          icon={<Music className="w-16 h-16" />}
-          title="Artist Not Found"
-          description="The artist you're looking for doesn't exist or has been removed."
-          action={{
-            label: "Discover Artists",
-            onClick: () => window.location.href = "/discover",
-          }}
-        />
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <Music className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-xl font-semibold mb-2">Artist Not Found</h2>
+              <p className="text-muted-foreground mb-4">
+                The artist you're looking for doesn't exist or has been removed.
+              </p>
+              <Button onClick={() => window.location.href = '/discover'}>
+                Browse Artists
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  const { artist, songs = [], products = [], events = [], isFollowing } = artistData;
+  const { artist, isFollowing } = artistData;
 
   const handleFollow = () => {
     if (!isAuthenticated) {
@@ -96,19 +156,20 @@ export default function ArtistProfile() {
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
-        title: `${artist.id} - Rise Up Creators`,
+        title: `${artist.name} - Rise Up Creators`,
         url: window.location.href,
       });
     } else {
       navigator.clipboard.writeText(window.location.href);
+      alert("Link copied to clipboard!");
     }
   };
 
   const socialLinks = [
-    { icon: Instagram, url: "" },
-    { icon: Twitter, url: "" },
-    { icon: Youtube, url: "" },
-    { icon: Globe, url: "" },
+    { icon: Instagram, url: artist.socials?.instagram || "" },
+    { icon: Twitter, url: artist.socials?.twitter || "" },
+    { icon: Youtube, url: artist.socials?.youtube || "" },
+    { icon: Globe, url: artist.socials?.website || "" },
   ].filter(link => link.url);
 
   return (
@@ -117,12 +178,12 @@ export default function ArtistProfile() {
       <div className="relative h-80 bg-gradient-to-b from-primary/20 to-background overflow-hidden">
         {/* Cover Image Placeholder */}
         <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-primary/30" />
-        
+
         {/* Artist Info */}
         <div className="absolute bottom-0 left-0 right-0 p-8">
           <div className="max-w-7xl mx-auto flex items-end space-x-6">
             <Avatar className="w-32 h-32 border-4 border-background shadow-2xl">
-              <AvatarImage src={""} alt={artist.id} />
+              <AvatarImage src={artist.avatarUrl || ""} alt={artist.name} />
               <AvatarFallback className="text-2xl bg-primary text-primary-foreground">
                 <Music className="w-12 h-12" />
               </AvatarFallback>
@@ -131,7 +192,7 @@ export default function ArtistProfile() {
             <div className="flex-1 space-y-4">
               <div className="flex items-center space-x-3">
                 <h1 className="text-4xl font-bold" data-testid="artist-name">
-                  Artist Name
+                  {artist.name}
                 </h1>
                 {artist.verification?.status === 'approved' && (
                   <Badge className="bg-primary text-primary-foreground">
@@ -295,10 +356,14 @@ export default function ArtistProfile() {
                   <Card key={product.id} className="card-hover">
                     <CardContent className="p-4">
                       <div className="aspect-square bg-muted rounded-lg mb-4 flex items-center justify-center">
-                        <ShoppingBag className="w-12 h-12 text-muted-foreground" />
+                        <img
+                          src={product.imageUrl || ""}
+                          alt={product.name}
+                          className="w-full h-full object-cover rounded-lg"
+                        />
                       </div>
                       <h3 className="font-semibold mb-2">{product.name}</h3>
-                      <p className="text-primary font-bold">${product.price}</p>
+                      <p className="text-primary font-bold">${product.price.toFixed(2)}</p>
                     </CardContent>
                   </Card>
                 ))}
@@ -317,7 +382,7 @@ export default function ArtistProfile() {
               <div>
                 <h2 className="text-2xl font-bold mb-4">About</h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Artist bio and description would appear here.
+                  {artist.bio || "This artist has not provided a biography yet."}
                 </p>
               </div>
 

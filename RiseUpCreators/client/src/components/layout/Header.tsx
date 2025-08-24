@@ -123,7 +123,7 @@ export default function Header() {
                       </div>
                     </div>
                     <DropdownMenuItem asChild>
-                      <Link href="/dashboard" className="cursor-pointer">
+                      <Link href={user?.role === 'artist' ? '/artist/dashboard' : '/fan/dashboard'} className="cursor-pointer">
                         <User className="mr-2 h-4 w-4" />
                         Dashboard
                       </Link>

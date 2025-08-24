@@ -48,13 +48,18 @@ export default function MyMusic() {
   const [selectedSongs, setSelectedSongs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('all');
 
-  const { data: songsData, isLoading } = useQuery({
+  const { data: songsData, isLoading, error } = useQuery({
     queryKey: ["/api/artists/my-music"],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/artists/my-music");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
       return response.json();
     },
     enabled: !!user && user.role === 'artist',
+    retry: 3,
+    staleTime: 5 * 60 * 1000,
   });
 
   const deleteSongMutation = useMutation({

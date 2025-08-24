@@ -23,6 +23,7 @@ interface PlayerActions {
   setVolume: (volume: number) => void;
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
+  setIsPlaying: (playing: boolean) => void;
   addToQueue: (songs: Song[], playNow?: boolean) => void;
   removeFromQueue: (index: number) => void;
   clearQueue: () => void;
@@ -115,6 +116,10 @@ export const usePlayerStore = create<PlayerState & PlayerActions>((set, get) => 
 
   setDuration: (duration: number) => {
     set({ duration });
+  },
+
+  setIsPlaying: (playing: boolean) => {
+    set({ isPlaying: playing });
   },
 
   addToQueue: (songs: Song[], playNow = false) => {
